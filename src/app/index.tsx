@@ -2990,12 +2990,7 @@ function exportarBackupCompleto() {
               <Text style={styles.filtroButtonText}>Inativos</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.exportarButton}
-              onPress={exportarAlunos}
-            >
-              <Text style={styles.exportarButtonText}>Exportar CSV</Text>
-            </TouchableOpacity>
+            
           </View>
 
           <View style={styles.filtrosGrid}>
@@ -3272,13 +3267,7 @@ function exportarBackupCompleto() {
             <Text style={styles.pagamentoExplicacao}>
               Marque quem pagou, defina vencimento, valor e observações.
             </Text>
-
-            <TouchableOpacity
-              style={styles.exportarButton}
-              onPress={exportarPagamentos}
-            >
-              <Text style={styles.exportarButtonText}>Exportar CSV</Text>
-            </TouchableOpacity>
+            
           </View>
 
           {carregandoPagamentos ? (
