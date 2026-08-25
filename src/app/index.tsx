@@ -759,7 +759,7 @@ function abrirWhatsApp(numero?: string, mensagem?: string) {
   }
 
   const texto = encodeURIComponent(
-    mensagem || "Olá! Aqui é da Angel Transports."
+    mensagem || "Olá! Aqui é da Angel Transportes."
   );
 
   const url = `https://wa.me/${telefone}?text=${texto}`;
@@ -792,7 +792,7 @@ function ligarParaNumero(numero?: string) {
   if (!telefone) {
     Alert.alert(
       "Telefone não informado",
-      "O telefone da Angel Transports ainda não foi configurado."
+      "O telefone da Angel Transportes ainda não foi configurado."
     );
     return;
   }
@@ -2147,7 +2147,7 @@ function exportarBackupCompleto() {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.page}>
         <HeaderPagina
-          titulo="Conheça a Angel Transports"
+          titulo="Conheça a Angel Transportes"
           subtitulo="Informações atualizadas diretamente pelo nosso painel administrativo."
           voltar={() => setTela("inicio")}
         />
@@ -2191,7 +2191,7 @@ function exportarBackupCompleto() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.secaoTituloSemMargem}>Fale com a Angel Transports</Text>
+          <Text style={styles.secaoTituloSemMargem}>Fale com a Angel Transportes</Text>
           <Text style={styles.descricao}>
             Quer saber sobre disponibilidade, bairros atendidos ou valores? Entre em contato.
           </Text>
@@ -2266,7 +2266,7 @@ function exportarBackupCompleto() {
               />
             </Animated.View>
 
-            <Text style={styles.title}>Angel Transports</Text>
+            <Text style={styles.title}>Angel Transportes</Text>
 
             <Text style={styles.subtitle}>
               Transporte escolar com segurança, organização e transparência
@@ -2596,7 +2596,7 @@ function exportarBackupCompleto() {
       <ScrollView style={styles.container} contentContainerStyle={styles.page}>
         <HeaderPagina
           titulo="Avisos"
-          subtitulo="Comunicados da Angel Transports."
+          subtitulo="Comunicados da Angel Transportes."
           voltar={() => setTela("menu")}
         />
 
@@ -2764,7 +2764,7 @@ function exportarBackupCompleto() {
       >
         <View>
           <Text style={styles.tag}>ADMINISTRADOR</Text>
-          <Text style={styles.adminTitle}>Angel Transports</Text>
+          <Text style={styles.adminTitle}>Angel Transportes</Text>
           <Text style={styles.adminSub}>
             Gestão completa do transporte escolar
           </Text>
@@ -3221,7 +3221,7 @@ function exportarBackupCompleto() {
                       onPress={() =>
                         abrirWhatsApp(
                           aluno.telefone,
-                          `Olá ${aluno.nomeResponsavel || ""}! Aqui é da Angel Transports.`
+                          `Olá ${aluno.nomeResponsavel || ""}! Aqui é da Angel Transportes.`
                         )
                       }
                     >
