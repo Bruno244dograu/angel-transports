@@ -8,9 +8,9 @@ import {
   Easing,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
-  Linking,
   ScrollView,
   StyleSheet,
   Switch,
@@ -734,8 +734,8 @@ function confirmarAcao(
 function abrirWhatsApp(numero?: string, mensagem?: string) {
   if (!numero) {
     Alert.alert(
-      "WhatsApp não configurado",
-      "O telefone público ainda não foi carregado."
+      "Telefone não informado",
+      "Este responsável não possui telefone cadastrado."
     );
     return;
   }
@@ -747,8 +747,7 @@ function abrirWhatsApp(numero?: string, mensagem?: string) {
     : `55${limpo}`;
 
   const texto = encodeURIComponent(
-    mensagem ||
-      "Olá! Tenho interesse no transporte escolar da Angel Transports."
+    mensagem || "Olá! Aqui é da Angel Transports."
   );
 
   const url = `https://wa.me/${telefone}?text=${texto}`;
@@ -763,6 +762,27 @@ function abrirWhatsApp(numero?: string, mensagem?: string) {
     Alert.alert(
       "Erro",
       "Não foi possível abrir o WhatsApp."
+    );
+  });
+}
+
+function ligarParaNumero(numero?: string) {
+  if (!numero) {
+    Alert.alert(
+      "Telefone não informado",
+      "O telefone da Angel Transports ainda não foi configurado."
+    );
+    return;
+  }
+
+  const somenteNumeros = numero.replace(/\D/g, "");
+
+  const url = `tel:${somenteNumeros}`;
+
+  Linking.openURL(url).catch(() => {
+    Alert.alert(
+      "Não foi possível ligar",
+      "Este dispositivo não conseguiu abrir o aplicativo de telefone."
     );
   });
 }
@@ -2094,13 +2114,22 @@ function exportarBackupCompleto() {
           voltar={() => setTela("inicio")}
         />
 
-        <View style={styles.card}>
-          <Text style={styles.secaoTituloSemMargem}>Nossa van</Text>
-          <Info titulo="Modelo" valor={van.modelo || "Não informado"} />
-          <Info titulo="Ano" valor={van.ano || "Não informado"} />
-          <Info titulo="Capacidade" valor={van.capacidade || "Não informada"} />
-          <Info titulo="Observações" valor={van.observacoes || "Sem observações"} />
-        </View>
+              <View style={styles.card}>
+                <Text style={styles.secaoTituloSemMargem}>
+                  Fale com a Angel Transports
+                </Text>
+
+                <Text style={styles.descricao}>
+                  Quer saber sobre disponibilidade, bairros atendidos ou valores? Entre em contato.
+                </Text>
+
+                <BotaoAnimado
+                  texto="Ligar para contratar o transporte"
+                  onPress={() =>
+                    ligarParaNumero(config.telefoneContato)
+                  }
+                />
+              </View>
 
         <View style={styles.card}>
           <Text style={styles.secaoTituloSemMargem}>Escolas atendidas</Text>
@@ -2133,21 +2162,19 @@ function exportarBackupCompleto() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.secaoTituloSemMargem}>Fale com a Angel Transports</Text>
-          <Text style={styles.descricao}>
-            Quer saber sobre disponibilidade, bairros atendidos ou valores? Entre em contato.
-          </Text>
+  <Text style={styles.secaoTituloSemMargem}>
+    Fale com a Angel Transports
+  </Text>
 
-          <BotaoAnimado
-            texto="Quero contratar o transporte"
-            onPress={() =>
-              abrirWhatsApp(
-                config.telefoneContato,
-                "Olá! Tenho interesse no transporte escolar da Angel Transports."
-              )
-            }
-          />
-        </View>
+  <Text style={styles.descricao}>
+    Quer saber sobre disponibilidade, bairros atendidos ou valores? Entre em contato.
+  </Text>
+
+  <BotaoAnimado
+    texto="Ligar para contratar o transporte"
+    onPress={() => ligarParaNumero(config.telefoneContato)}
+  />
+</View>
 
         <BotaoAnimado
           texto="Voltar para entrar ou criar conta"
