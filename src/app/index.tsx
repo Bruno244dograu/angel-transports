@@ -734,17 +734,17 @@ function confirmarAcao(
 function abrirWhatsApp(numero?: string, mensagem?: string) {
   if (!numero) {
     Alert.alert(
-      "Telefone não informado",
-      "O WhatsApp da Angel Transports ainda não foi configurado."
+      "WhatsApp não configurado",
+      "O telefone público ainda não foi carregado."
     );
     return;
   }
 
-  const somenteNumeros = numero.replace(/\D/g, "");
+  const limpo = numero.replace(/\D/g, "");
 
-  const telefone = somenteNumeros.startsWith("55")
-    ? somenteNumeros
-    : `55${somenteNumeros}`;
+  const telefone = limpo.startsWith("55")
+    ? limpo
+    : `55${limpo}`;
 
   const texto = encodeURIComponent(
     mensagem ||
@@ -755,20 +755,16 @@ function abrirWhatsApp(numero?: string, mensagem?: string) {
 
   if (Platform.OS === "web") {
     const g: any = globalThis as any;
-
-    if (g.window) {
-      g.window.location.href = url;
-    } else {
-      g.location.href = url;
-    }
-  } else {
-    Linking.openURL(url).catch(() => {
-      Alert.alert(
-        "Erro",
-        "Não foi possível abrir o WhatsApp."
-      );
-    });
+    g.window.open(url, "_blank", "noopener,noreferrer");
+    return;
   }
+
+  Linking.openURL(url).catch(() => {
+    Alert.alert(
+      "Erro",
+      "Não foi possível abrir o WhatsApp."
+    );
+  });
 }
 
 // =====================================================
@@ -1596,7 +1592,7 @@ async function verDetalhesAluno(aluno: Aluno) {
           escolas: dados.escolas || [],
           bairros: dados.bairros || [],
           valorMensalPadrao: dados.valorMensalPadrao || "",
-        telefoneContato: dados.telefoneContato || "",
+          telefoneContato: dados.telefoneContato || "",
         });
       }
     } catch (error: any) {
