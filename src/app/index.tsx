@@ -731,20 +731,32 @@ function confirmarAcao(
   ]);
 }
 
+function normalizarTelefoneBrasil(numero?: string) {
+  if (!numero) return "";
+
+  let limpo = numero.replace(/\D/g, "");
+
+  if (limpo.startsWith("0")) {
+    limpo = limpo.replace(/^0+/, "");
+  }
+
+  if (!limpo.startsWith("55")) {
+    limpo = `55${limpo}`;
+  }
+
+  return limpo;
+}
+
 function abrirWhatsApp(numero?: string, mensagem?: string) {
-  if (!numero) {
+  const telefone = normalizarTelefoneBrasil(numero);
+
+  if (!telefone) {
     Alert.alert(
       "Telefone não informado",
       "Este responsável não possui telefone cadastrado."
     );
     return;
   }
-
-  const limpo = numero.replace(/\D/g, "");
-
-  const telefone = limpo.startsWith("55")
-    ? limpo
-    : `55${limpo}`;
 
   const texto = encodeURIComponent(
     mensagem || "Olá! Aqui é da Angel Transports."
@@ -754,20 +766,30 @@ function abrirWhatsApp(numero?: string, mensagem?: string) {
 
   if (Platform.OS === "web") {
     const g: any = globalThis as any;
-    g.window.open(url, "_blank", "noopener,noreferrer");
-    return;
+
+    if (g.window?.open) {
+      g.window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    if (g.location) {
+      g.location.href = url;
+      return;
+    }
   }
 
   Linking.openURL(url).catch(() => {
     Alert.alert(
       "Erro",
-      "Não foi possível abrir o WhatsApp."
+      "Não foi possível abrir o WhatsApp neste dispositivo."
     );
   });
 }
 
 function ligarParaNumero(numero?: string) {
-  if (!numero) {
+  const telefone = normalizarTelefoneBrasil(numero);
+
+  if (!telefone) {
     Alert.alert(
       "Telefone não informado",
       "O telefone da Angel Transports ainda não foi configurado."
@@ -775,14 +797,28 @@ function ligarParaNumero(numero?: string) {
     return;
   }
 
-  const somenteNumeros = numero.replace(/\D/g, "");
+  // O sinal + deixa o número no padrão internacional brasileiro.
+  const url = `tel:+${telefone}`;
 
-  const url = `tel:${somenteNumeros}`;
+  if (Platform.OS === "web") {
+    const g: any = globalThis as any;
+
+    // Em navegadores móveis, navegar para tel: abre o discador do aparelho.
+    if (g.window?.location) {
+      g.window.location.href = url;
+      return;
+    }
+
+    if (g.location) {
+      g.location.href = url;
+      return;
+    }
+  }
 
   Linking.openURL(url).catch(() => {
     Alert.alert(
-      "Não foi possível ligar",
-      "Este dispositivo não conseguiu abrir o aplicativo de telefone."
+      "Não foi possível abrir o telefone",
+      "Este dispositivo ou navegador não conseguiu abrir o aplicativo de telefone."
     );
   });
 }
@@ -1904,6 +1940,8 @@ function exportarBackupCompleto() {
           bairros: dados.bairros || [],
           valorMensalPadrao:
             dados.valorMensalPadrao || "",
+          telefoneContato:
+            dados.telefoneContato || "",
         });
       },
       (error) => {
@@ -2114,22 +2152,13 @@ function exportarBackupCompleto() {
           voltar={() => setTela("inicio")}
         />
 
-              <View style={styles.card}>
-                <Text style={styles.secaoTituloSemMargem}>
-                  Fale com a Angel Transports
-                </Text>
-
-                <Text style={styles.descricao}>
-                  Quer saber sobre disponibilidade, bairros atendidos ou valores? Entre em contato.
-                </Text>
-
-                <BotaoAnimado
-                  texto="Ligar para contratar o transporte"
-                  onPress={() =>
-                    ligarParaNumero(config.telefoneContato)
-                  }
-                />
-              </View>
+        <View style={styles.card}>
+          <Text style={styles.secaoTituloSemMargem}>Nossa van</Text>
+          <Info titulo="Modelo" valor={van.modelo || "Não informado"} />
+          <Info titulo="Ano" valor={van.ano || "Não informado"} />
+          <Info titulo="Capacidade" valor={van.capacidade || "Não informada"} />
+          <Info titulo="Observações" valor={van.observacoes || "Sem observações"} />
+        </View>
 
         <View style={styles.card}>
           <Text style={styles.secaoTituloSemMargem}>Escolas atendidas</Text>
@@ -2162,19 +2191,18 @@ function exportarBackupCompleto() {
         </View>
 
         <View style={styles.card}>
-  <Text style={styles.secaoTituloSemMargem}>
-    Fale com a Angel Transports
-  </Text>
+          <Text style={styles.secaoTituloSemMargem}>Fale com a Angel Transports</Text>
+          <Text style={styles.descricao}>
+            Quer saber sobre disponibilidade, bairros atendidos ou valores? Entre em contato.
+          </Text>
 
-  <Text style={styles.descricao}>
-    Quer saber sobre disponibilidade, bairros atendidos ou valores? Entre em contato.
-  </Text>
-
-  <BotaoAnimado
-    texto="Ligar para contratar o transporte"
-    onPress={() => ligarParaNumero(config.telefoneContato)}
-  />
-</View>
+          <BotaoAnimado
+            texto="Ligar para contratar o transporte"
+            onPress={() =>
+              ligarParaNumero(config.telefoneContato)
+            }
+          />
+        </View>
 
         <BotaoAnimado
           texto="Voltar para entrar ou criar conta"
