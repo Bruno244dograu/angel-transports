@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Linking,
   ScrollView,
   StyleSheet,
   Switch,
@@ -732,24 +733,41 @@ function confirmarAcao(
 
 function abrirWhatsApp(numero?: string, mensagem?: string) {
   if (!numero) {
-    Alert.alert("Telefone não informado", "Não há telefone cadastrado.");
+    Alert.alert(
+      "Telefone não informado",
+      "O WhatsApp da Angel Transports ainda não foi configurado."
+    );
     return;
   }
 
-  const limpo = numero.replace(/\D/g, "");
-  const telefone = limpo.startsWith("55") ? limpo : `55${limpo}`;
+  const somenteNumeros = numero.replace(/\D/g, "");
+
+  const telefone = somenteNumeros.startsWith("55")
+    ? somenteNumeros
+    : `55${somenteNumeros}`;
+
   const texto = encodeURIComponent(
-    mensagem || "Olá! Estou entrando em contato pela Angel Transports."
+    mensagem ||
+      "Olá! Tenho interesse no transporte escolar da Angel Transports."
   );
+
+  const url = `https://wa.me/${telefone}?text=${texto}`;
 
   if (Platform.OS === "web") {
     const g: any = globalThis as any;
-    g.open(`https://wa.me/${telefone}?text=${texto}`, "_blank");
+
+    if (g.window) {
+      g.window.location.href = url;
+    } else {
+      g.location.href = url;
+    }
   } else {
-    Alert.alert(
-      "WhatsApp",
-      `Abra o WhatsApp e envie uma mensagem para +${telefone}.`
-    );
+    Linking.openURL(url).catch(() => {
+      Alert.alert(
+        "Erro",
+        "Não foi possível abrir o WhatsApp."
+      );
+    });
   }
 }
 
