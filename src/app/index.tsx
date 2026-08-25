@@ -9,6 +9,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -31,6 +32,7 @@ import {
   getDoc,
   getDocs,
   query,
+  onSnapshot,
   serverTimestamp,
   setDoc,
   where,
@@ -59,6 +61,7 @@ const AMARELO = "#B7791F";
 
 type Tela =
   | "inicio"
+  | "informacoes"
   | "menu"
   | "cadastro"
   | "perfil"
@@ -68,10 +71,10 @@ type Tela =
 
 type RotaAdmin =
   | "dashboard"
+  | "solicitacoes"
   | "alunos"
   | "pagamentos"
   | "calendario"
-  | "rotas"
   | "van"
   | "avisos"
   | "configuracoes";
@@ -88,6 +91,9 @@ type Aluno = {
   turno?: string;
   usuarioEmail?: string;
   usuarioUid?: string;
+  statusCadastro?: "pendente" | "ativo" | "recusado";
+  aprovadoEm?: any;
+  recusadoEm?: any;
 };
 
 type Pagamento = {
@@ -103,14 +109,6 @@ type Pagamento = {
   observacao?: string;
 };
 
-type Rota = {
-  id: string;
-  nome: string;
-  bairros: string;
-  escolas: string;
-  horario: string;
-  observacoes?: string;
-};
 
 type Aviso = {
   id: string;
@@ -243,13 +241,6 @@ export default function HomeScreen() {
   const mesAtual = mesSelecionado.getMonth() + 1;
   const anoAtual = mesSelecionado.getFullYear();
 
-  // ROTAS
-  const [rotas, setRotas] = useState<Rota[]>([]);
-  const [nomeRota, setNomeRota] = useState("");
-  const [bairrosRota, setBairrosRota] = useState("");
-  const [escolasRota, setEscolasRota] = useState("");
-  const [horarioRota, setHorarioRota] = useState("");
-  const [observacoesRota, setObservacoesRota] = useState("");
 
   // VAN
   const [van, setVan] = useState<Van>({
@@ -430,6 +421,7 @@ export default function HomeScreen() {
         turno: turno.trim(),
         usuarioUid: usuario.uid,
         usuarioEmail: usuario.email || "",
+        statusCadastro: "pendente",
         criadoEm: serverTimestamp(),
       });
 
@@ -484,6 +476,55 @@ export default function HomeScreen() {
       console.log("ERRO ALUNOS", error);
     } finally {
       setCarregandoAlunos(false);
+    }
+  }
+
+  async function aprovarAluno(aluno: Aluno) {
+    try {
+      await setDoc(
+        doc(db, "alunos", aluno.id),
+        {
+          statusCadastro: "ativo",
+          aprovadoEm: serverTimestamp(),
+          recusadoEm: null,
+        },
+        { merge: true }
+      );
+
+      await registrarLog("Aluno aprovado", aluno.nomeAluno || aluno.id);
+      await buscarAlunos();
+
+      Alert.alert(
+        "Aluno aprovado",
+        `${aluno.nomeAluno || "Aluno"} agora faz parte da lista de clientes ativos.`
+      );
+    } catch (error) {
+      console.log("ERRO AO APROVAR:", error);
+      Alert.alert("Erro", "Não foi possível aprovar o aluno.");
+    }
+  }
+
+  async function recusarAluno(aluno: Aluno) {
+    try {
+      await setDoc(
+        doc(db, "alunos", aluno.id),
+        {
+          statusCadastro: "recusado",
+          recusadoEm: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      await registrarLog("Cadastro recusado", aluno.nomeAluno || aluno.id);
+      await buscarAlunos();
+
+      Alert.alert(
+        "Cadastro recusado",
+        `${aluno.nomeAluno || "Aluno"} foi removido das solicitações pendentes.`
+      );
+    } catch (error) {
+      console.log("ERRO AO RECUSAR:", error);
+      Alert.alert("Erro", "Não foi possível recusar o cadastro.");
     }
   }
 
@@ -606,46 +647,6 @@ export default function HomeScreen() {
     }
   }
 
-  // =====================================================
-  // ROTAS
-  // =====================================================
-
-  async function buscarRotas() {
-    const resposta = await getDocs(collection(db, "rotas"));
-
-    setRotas(
-      resposta.docs.map((item) => ({
-        id: item.id,
-        ...(item.data() as Omit<Rota, "id">),
-      }))
-    );
-  }
-
-  async function criarRota() {
-    if (!nomeRota.trim() || !bairrosRota.trim() || !escolasRota.trim()) {
-      Alert.alert("Atenção", "Preencha nome, bairros e escolas.");
-      return;
-    }
-
-    await addDoc(collection(db, "rotas"), {
-      nome: nomeRota.trim(),
-      bairros: bairrosRota.trim(),
-      escolas: escolasRota.trim(),
-      horario: horarioRota.trim(),
-      observacoes: observacoesRota.trim(),
-      criadoEm: serverTimestamp(),
-    });
-
-    await registrarLog("Rota criada", nomeRota.trim());
-
-    setNomeRota("");
-    setBairrosRota("");
-    setEscolasRota("");
-    setHorarioRota("");
-    setObservacoesRota("");
-
-    await buscarRotas();
-  }
 
   // =====================================================
   // VAN
@@ -812,7 +813,7 @@ export default function HomeScreen() {
   function exportarAlunos() {
     baixarCSV("alunos-angel-transports.csv", [
       ["Nome", "Responsável", "Telefone", "Bairro", "Escola", "Turno", "E-mail"],
-      ...alunos.map((a) => [
+      ...alunosAtivos.map((a) => [
         a.nomeAluno || "",
         a.nomeResponsavel || "",
         a.telefone || "",
@@ -827,7 +828,7 @@ export default function HomeScreen() {
   function exportarPagamentos() {
     baixarCSV(`pagamentos-${mesAtual}-${anoAtual}.csv`, [
       ["Aluno", "Status", "Vencimento", "Valor", "Observação"],
-      ...alunos.map((aluno) => {
+      ...alunosAtivos.map((aluno) => {
         const p = pagamentos.find((item) => item.alunoId === aluno.id);
 
         return [
@@ -845,6 +846,31 @@ export default function HomeScreen() {
   // EFEITOS
   // =====================================================
 
+  // Informações públicas sincronizadas em tempo real com o Firebase.
+  // Quando o ADM altera Van ou Configurações, quem estiver nesta tela recebe a atualização.
+  useEffect(() => {
+    if (tela !== "informacoes" && tela !== "inicio") return;
+
+    const pararVan = onSnapshot(doc(db, "configuracoes", "van"), (snap) => {
+      if (snap.exists()) setVan(snap.data() as Van);
+    });
+
+    const pararConfig = onSnapshot(doc(db, "configuracoes", "geral"), (snap) => {
+      if (!snap.exists()) return;
+      const dados = snap.data();
+      setConfig({
+        escolas: dados.escolas || [],
+        bairros: dados.bairros || [],
+        valorMensalPadrao: dados.valorMensalPadrao || "",
+      });
+    });
+
+    return () => {
+      pararVan();
+      pararConfig();
+    };
+  }, [tela]);
+
   useEffect(() => {
     if (tela === "perfil") {
       buscarMeusAlunos();
@@ -860,7 +886,6 @@ export default function HomeScreen() {
       buscarConfiguracoes();
       buscarAvisos();
       buscarVan();
-      buscarRotas();
     }
   }, [tela]);
 
@@ -879,28 +904,110 @@ export default function HomeScreen() {
   // DADOS CALCULADOS
   // =====================================================
 
+  const solicitacoesPendentes = useMemo(
+    () => alunos.filter((a) => a.statusCadastro === "pendente"),
+    [alunos]
+  );
+
+  // Cadastros antigos, criados antes desta função existir, são tratados como ativos.
+  const alunosAtivos = useMemo(
+    () =>
+      alunos.filter(
+        (a) =>
+          !a.statusCadastro ||
+          a.statusCadastro === "ativo"
+      ),
+    [alunos]
+  );
+
   const alunosFiltrados = useMemo(() => {
     const busca = buscaAluno.trim().toLowerCase();
 
-    if (!busca) return alunos;
+    if (!busca) return alunosAtivos;
 
-    return alunos.filter((a) =>
+    return alunosAtivos.filter((a) =>
       `${a.nomeAluno} ${a.nomeResponsavel} ${a.escola} ${a.bairro}`
         .toLowerCase()
         .includes(busca)
     );
-  }, [alunos, buscaAluno]);
+  }, [alunosAtivos, buscaAluno]);
 
-  const totalPago = pagamentos.filter((p) => p.status === "pago").length;
-  const totalPendente = Math.max(alunos.length - totalPago, 0);
+  const totalPago = pagamentos.filter(
+    (p) =>
+      p.status === "pago" &&
+      alunosAtivos.some((a) => a.id === p.alunoId)
+  ).length;
+
+  const totalPendente = Math.max(alunosAtivos.length - totalPago, 0);
+
   const totalRecebido = pagamentos
-    .filter((p) => p.status === "pago")
+    .filter(
+      (p) =>
+        p.status === "pago" &&
+        alunosAtivos.some((a) => a.id === p.alunoId)
+    )
     .reduce((soma, p) => soma + Number(p.valor || 0), 0);
 
-  const vencendo = alunos.filter((aluno) => {
+  const vencendo = alunosAtivos.filter((aluno) => {
     const p = pagamentos.find((item) => item.alunoId === aluno.id);
     return p?.status !== "pago" && estaVencendoEmSeteDias(p?.dataVencimento);
   }).length;
+
+  // =====================================================
+  // INFORMAÇÕES PÚBLICAS
+  // =====================================================
+
+  if (tela === "informacoes") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.page}>
+        <HeaderPagina
+          titulo="Conheça a Angel Transports"
+          subtitulo="Informações atualizadas diretamente pelo nosso painel administrativo."
+          voltar={() => setTela("inicio")}
+        />
+
+        <View style={styles.card}>
+          <Text style={styles.secaoTituloSemMargem}>Nossa van</Text>
+          <Info titulo="Modelo" valor={van.modelo || "Não informado"} />
+          <Info titulo="Ano" valor={van.ano || "Não informado"} />
+          <Info titulo="Capacidade" valor={van.capacidade || "Não informada"} />
+          <Info titulo="Observações" valor={van.observacoes || "Sem observações"} />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.secaoTituloSemMargem}>Escolas atendidas</Text>
+          {config.escolas.length === 0 ? (
+            <Text style={styles.descricao}>Nenhuma escola informada no momento.</Text>
+          ) : (
+            <View style={styles.chips}>
+              {config.escolas.map((item, index) => (
+                <View key={`${item}-${index}`} style={styles.chip}>
+                  <Text style={styles.chipText}>{item}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.secaoTituloSemMargem}>Bairros atendidos</Text>
+          {config.bairros.length === 0 ? (
+            <Text style={styles.descricao}>Nenhum bairro informado no momento.</Text>
+          ) : (
+            <View style={styles.chips}>
+              {config.bairros.map((item, index) => (
+                <View key={`${item}-${index}`} style={styles.chip}>
+                  <Text style={styles.chipText}>{item}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+
+        <BotaoAnimado texto="Voltar para entrar ou criar conta" onPress={() => setTela("inicio")} />
+      </ScrollView>
+    );
+  }
 
   // =====================================================
   // TELA INICIAL
@@ -985,35 +1092,49 @@ export default function HomeScreen() {
                   : "Crie sua conta e cadastre sua criança."}
               </Text>
 
-              <View style={styles.tabs}>
-                <TouchableOpacity
-                  style={[styles.tab, modo === "login" && styles.tabAtiva]}
-                  onPress={() => setModo("login")}
-                >
-                  <Text
-                    style={[
-                      styles.tabText,
-                      modo === "login" && styles.tabTextAtiva,
-                    ]}
-                  >
-                    Entrar
-                  </Text>
-                </TouchableOpacity>
+              <View
+  style={{
+    width: "100%",
+    transform: [{ translateY: -25 }],
+  }}
+>
+  <BotaoAnimado
+    texto="Informações do transporte"
+    secundario
+    hoverLift
+    onPress={() => setTela("informacoes")}
+  />
+</View>
 
-                <TouchableOpacity
-                  style={[styles.tab, modo === "criar" && styles.tabAtiva]}
-                  onPress={() => setModo("criar")}
-                >
-                  <Text
-                    style={[
-                      styles.tabText,
-                      modo === "criar" && styles.tabTextAtiva,
-                    ]}
-                  >
-                    Criar conta
-                  </Text>
-                </TouchableOpacity>
-              </View>
+<View style={styles.tabs}>
+  <TouchableOpacity
+    style={[styles.tab, modo === "login" && styles.tabAtiva]}
+    onPress={() => setModo("login")}
+  >
+    <Text
+      style={[
+        styles.tabText,
+        modo === "login" && styles.tabTextAtiva,
+      ]}
+    >
+      Entrar
+    </Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={[styles.tab, modo === "criar" && styles.tabAtiva]}
+    onPress={() => setModo("criar")}
+  >
+    <Text
+      style={[
+        styles.tabText,
+        modo === "criar" && styles.tabTextAtiva,
+      ]}
+    >
+      Criar conta
+    </Text>
+  </TouchableOpacity>
+</View>
 
               {modo === "criar" && (
                 <Campo
@@ -1279,10 +1400,11 @@ export default function HomeScreen() {
             <Text style={styles.check}>✓</Text>
           </View>
 
-          <Text style={styles.sucessoTitle}>Criança cadastrada!</Text>
+          <Text style={styles.sucessoTitle}>Cadastro enviado!</Text>
 
           <Text style={styles.centerText}>
-            {nomeAluno} foi cadastrado com sucesso e salvo no Firebase.
+            {nomeAluno} foi cadastrado e enviado para análise. O administrador precisa
+            aprovar o cadastro antes de ele entrar na lista de alunos ativos.
           </Text>
 
           <View style={styles.idBox}>
@@ -1353,6 +1475,11 @@ export default function HomeScreen() {
           onPress={() => setRotaAdmin("dashboard")}
         />
         <AdminTab
+          texto={`Solicitações (${solicitacoesPendentes.length})`}
+          ativo={rotaAdmin === "solicitacoes"}
+          onPress={() => setRotaAdmin("solicitacoes")}
+        />
+        <AdminTab
           texto="Alunos"
           ativo={rotaAdmin === "alunos"}
           onPress={() => setRotaAdmin("alunos")}
@@ -1366,11 +1493,6 @@ export default function HomeScreen() {
           texto="Calendário"
           ativo={rotaAdmin === "calendario"}
           onPress={() => setRotaAdmin("calendario")}
-        />
-        <AdminTab
-          texto="Rotas"
-          ativo={rotaAdmin === "rotas"}
-          onPress={() => setRotaAdmin("rotas")}
         />
         <AdminTab
           texto="Van"
@@ -1404,7 +1526,11 @@ export default function HomeScreen() {
           />
 
           <View style={styles.dashboardGrid}>
-            <ResumoCard titulo="Alunos" valor={String(alunos.length)} />
+            <ResumoCard titulo="Alunos ativos" valor={String(alunosAtivos.length)} />
+            <ResumoCard
+              titulo="Novas solicitações"
+              valor={String(solicitacoesPendentes.length)}
+            />
             <ResumoCard titulo="Pagos" valor={String(totalPago)} verde />
             <ResumoCard
               titulo="Pendentes"
@@ -1412,7 +1538,6 @@ export default function HomeScreen() {
               vermelho
             />
             <ResumoCard titulo="Vencem em breve" valor={String(vencendo)} />
-            <ResumoCard titulo="Rotas" valor={String(rotas.length)} />
             <ResumoCard
               titulo="Recebido no mês"
               valor={`R$ ${totalRecebido.toFixed(2).replace(".", ",")}`}
@@ -1426,14 +1551,14 @@ export default function HomeScreen() {
             <BarraResumo
               titulo="Pagos"
               valor={totalPago}
-              total={Math.max(alunos.length, 1)}
+              total={Math.max(alunosAtivos.length, 1)}
               tipo="verde"
             />
 
             <BarraResumo
               titulo="Pendentes"
               valor={totalPendente}
-              total={Math.max(alunos.length, 1)}
+              total={Math.max(alunosAtivos.length, 1)}
               tipo="vermelho"
             />
           </View>
@@ -1445,6 +1570,48 @@ export default function HomeScreen() {
             <Info titulo="Avisos publicados" valor={String(avisos.length)} />
             <Info titulo="Modelo da van" valor={van.modelo || "Não informado"} />
           </View>
+        </>
+      )}
+
+      {/* SOLICITAÇÕES */}
+
+      {rotaAdmin === "solicitacoes" && (
+        <>
+          <View style={styles.card}>
+            <Text style={styles.secaoTituloSemMargem}>Novos cadastros</Text>
+            <Text style={styles.descricao}>
+              Os alunos cadastrados por novos responsáveis ficam aqui até você aprovar.
+              Somente os aprovados entram na lista de alunos ativos e nos pagamentos.
+            </Text>
+          </View>
+
+          {solicitacoesPendentes.length === 0 ? (
+            <Vazio texto="Nenhuma solicitação pendente." />
+          ) : (
+            solicitacoesPendentes.map((aluno, index) => (
+              <CardAnimado key={aluno.id} delay={index * 55}>
+                <View style={styles.solicitacaoCard}>
+                  <AlunoCard aluno={aluno} />
+
+                  <View style={styles.solicitacaoAcoes}>
+                    <TouchableOpacity
+                      style={styles.recusarButton}
+                      onPress={() => recusarAluno(aluno)}
+                    >
+                      <Text style={styles.recusarButtonText}>Recusar</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.aprovarButton}
+                      onPress={() => aprovarAluno(aluno)}
+                    >
+                      <Text style={styles.aprovarButtonText}>Aprovar aluno</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </CardAnimado>
+            ))
+          )}
         </>
       )}
 
@@ -1510,7 +1677,7 @@ export default function HomeScreen() {
           {carregandoPagamentos ? (
             <ActivityIndicator size="large" color={VINHO} />
           ) : (
-            alunos.map((aluno, index) => {
+            alunosAtivos.map((aluno, index) => {
               const pagamento = pagamentos.find(
                 (item) => item.alunoId === aluno.id
               );
@@ -1549,70 +1716,6 @@ export default function HomeScreen() {
             data={mesSelecionado}
             pagamentos={pagamentos}
           />
-        </>
-      )}
-
-      {/* ROTAS */}
-
-      {rotaAdmin === "rotas" && (
-        <>
-          <View style={styles.card}>
-            <Text style={styles.secaoTituloSemMargem}>Nova rota</Text>
-
-            <Campo
-              label="Nome da rota"
-              value={nomeRota}
-              onChange={setNomeRota}
-              placeholder="Ex: Rota Norte"
-            />
-
-            <Campo
-              label="Bairros"
-              value={bairrosRota}
-              onChange={setBairrosRota}
-              placeholder="Ex: Jardim Amanda, Rosolém..."
-            />
-
-            <Campo
-              label="Escolas"
-              value={escolasRota}
-              onChange={setEscolasRota}
-              placeholder="Escolas atendidas"
-            />
-
-            <Campo
-              label="Horário"
-              value={horarioRota}
-              onChange={setHorarioRota}
-              placeholder="Ex: 06:20 - 07:10"
-            />
-
-            <Campo
-              label="Observações"
-              value={observacoesRota}
-              onChange={setObservacoesRota}
-              placeholder="Informações extras"
-            />
-
-            <BotaoAnimado texto="Salvar rota" onPress={criarRota} />
-          </View>
-
-          {rotas.length === 0 ? (
-            <Vazio texto="Nenhuma rota cadastrada." />
-          ) : (
-            rotas.map((rota) => (
-              <View key={rota.id} style={styles.alunoCard}>
-                <Text style={styles.alunoNome}>{rota.nome}</Text>
-                <Info titulo="Bairros" valor={rota.bairros} />
-                <Info titulo="Escolas" valor={rota.escolas} />
-                <Info titulo="Horário" valor={rota.horario || "Não informado"} />
-                <Info
-                  titulo="Observações"
-                  valor={rota.observacoes || "Sem observações"}
-                />
-              </View>
-            ))
-          )}
         </>
       )}
 
@@ -1794,22 +1897,39 @@ function BotaoAnimado({
   onPress,
   secundario = false,
   carregando = false,
+  hoverLift = false,
 }: {
   texto: string;
   onPress: () => void;
   secundario?: boolean;
   carregando?: boolean;
+  hoverLift?: boolean;
 }) {
   const escala = useRef(new Animated.Value(1)).current;
+  const levantar = useRef(new Animated.Value(0)).current;
+
+  function animarHover(valor: number) {
+    if (!hoverLift) return;
+
+    Animated.spring(levantar, {
+      toValue: valor,
+      useNativeDriver: true,
+      speed: 18,
+      bounciness: 5,
+    }).start();
+  }
 
   return (
     <Animated.View
       style={{
         width: "100%",
-        transform: [{ scale: escala }],
+        transform: [
+          { scale: escala },
+          { translateY: levantar },
+        ],
       }}
     >
-      <TouchableOpacity
+      <Pressable
         style={secundario ? styles.botaoSecundario : styles.botaoPrincipal}
         onPress={onPress}
         onPressIn={() => {
@@ -1824,6 +1944,8 @@ function BotaoAnimado({
             useNativeDriver: true,
           }).start();
         }}
+        onHoverIn={() => animarHover(-10)}
+        onHoverOut={() => animarHover(0)}
         disabled={carregando}
       >
         {carregando ? (
@@ -1839,7 +1961,7 @@ function BotaoAnimado({
             {texto}
           </Text>
         )}
-      </TouchableOpacity>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -2270,6 +2392,35 @@ function AlunoCard({ aluno }: { aluno: Aluno }) {
           <Text style={styles.alunoEscola}>
             {aluno.escola || "Escola não informada"}
           </Text>
+
+          {aluno.statusCadastro && (
+            <View
+              style={[
+                styles.statusCadastroBadge,
+                aluno.statusCadastro === "pendente" &&
+                  styles.statusCadastroPendente,
+                aluno.statusCadastro === "ativo" &&
+                  styles.statusCadastroAtivo,
+                aluno.statusCadastro === "recusado" &&
+                  styles.statusCadastroRecusado,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.statusCadastroText,
+                  aluno.statusCadastro === "pendente" && { color: AMARELO },
+                  aluno.statusCadastro === "ativo" && { color: VERDE },
+                  aluno.statusCadastro === "recusado" && { color: VERMELHO },
+                ]}
+              >
+                {aluno.statusCadastro === "pendente"
+                  ? "AGUARDANDO APROVAÇÃO"
+                  : aluno.statusCadastro === "ativo"
+                  ? "ATIVO"
+                  : "CADASTRO RECUSADO"}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -3017,6 +3168,78 @@ const styles = StyleSheet.create({
 
   exportarButtonText: {
     color: VINHO,
+    fontWeight: "900",
+  },
+
+  // SOLICITAÇÕES
+  solicitacaoCard: {
+    backgroundColor: "#FFFDF8",
+    borderRadius: 22,
+    padding: 4,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#EAD6A7",
+  },
+
+  solicitacaoAcoes: {
+    flexDirection: "row",
+    gap: 10,
+    padding: 14,
+    paddingTop: 0,
+  },
+
+  aprovarButton: {
+    flex: 1,
+    backgroundColor: VERDE,
+    minHeight: 50,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  aprovarButtonText: {
+    color: BRANCO,
+    fontWeight: "900",
+  },
+
+  recusarButton: {
+    flex: 1,
+    backgroundColor: "#FBE8EB",
+    borderWidth: 1,
+    borderColor: "#E7AAB2",
+    minHeight: 50,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  recusarButtonText: {
+    color: VERMELHO,
+    fontWeight: "900",
+  },
+
+  statusCadastroBadge: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 9,
+  },
+
+  statusCadastroPendente: {
+    backgroundColor: "#FFF4D6",
+  },
+
+  statusCadastroAtivo: {
+    backgroundColor: "#E3F4E8",
+  },
+
+  statusCadastroRecusado: {
+    backgroundColor: "#FBE8EB",
+  },
+
+  statusCadastroText: {
+    fontSize: 10,
     fontWeight: "900",
   },
 
