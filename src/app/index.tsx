@@ -22,6 +22,7 @@ import {
 
 import {
   createUserWithEmailAndPassword,
+  getIdTokenResult,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
@@ -48,7 +49,6 @@ import { auth, db } from "../firebase/config";
 // CONFIGURAÇÕES
 // =====================================================
 
-const EMAIL_ADMIN = "brunotmuller08@gmail.com";
 
 const VINHO = "#69172D";
 const VINHO_ESCURO = "#370913";
@@ -70,6 +70,8 @@ type Tela =
   | "cadastro"
   | "perfil"
   | "avisosUsuario"
+  | "ajuda"
+  | "privacidade"
   | "sucesso"
   | "admin";
 
@@ -102,6 +104,12 @@ type Aluno = {
   valorMensal?: number;
   diaVencimento?: number;
   observacoesInternas?: string;
+  tipoTransporte?: "ida" | "volta" | "ida_volta";
+  horarioEmbarque?: string;
+  contatoEmergencia?: string;
+  statusContrato?: "pendente" | "assinado";
+  dataInicioTransporte?: string;
+  dataFimTransporte?: string;
 };
 
 type Pagamento = {
@@ -246,6 +254,10 @@ export default function HomeScreen() {
   const [turno, setTurno] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [cadastroId, setCadastroId] = useState("");
+  const [tipoTransporte, setTipoTransporte] =
+    useState<"ida" | "volta" | "ida_volta">("ida_volta");
+  const [horarioEmbarque, setHorarioEmbarque] = useState("");
+  const [contatoEmergencia, setContatoEmergencia] = useState("");
 
   // PERFIL
   const [meusAlunos, setMeusAlunos] = useState<Aluno[]>([]);
@@ -253,6 +265,7 @@ export default function HomeScreen() {
 
   // PAGAMENTOS
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
+  const [pagamentosAno, setPagamentosAno] = useState<Pagamento[]>([]);
   const [carregandoPagamentos, setCarregandoPagamentos] = useState(false);
   const [mesSelecionado, setMesSelecionado] = useState(new Date());
 
@@ -306,6 +319,9 @@ export default function HomeScreen() {
 
   // SEGURANÇA
   const [novaSenhaPerfil, setNovaSenhaPerfil] = useState("");
+
+  // STATUS DO SISTEMA
+  const [firebaseOnline, setFirebaseOnline] = useState(true);
 
 // =====================================================
 // LOGIN, CONTA E MENSAGENS DE ERRO
@@ -448,11 +464,14 @@ async function fazerLogin() {
 
     setErroLogin("");
 
-    const emailLogado = credencial.user.email
-      ?.toLowerCase()
-      .trim();
+    const token = await getIdTokenResult(
+      credencial.user,
+      true
+    );
 
-    if (emailLogado === EMAIL_ADMIN) {
+    const usuarioAdmin = token.claims.admin === true;
+
+    if (usuarioAdmin) {
       setRotaAdmin("dashboard");
       setTela("admin");
       return;
@@ -759,7 +778,7 @@ function abrirWhatsApp(numero?: string, mensagem?: string) {
   }
 
   const texto = encodeURIComponent(
-    mensagem || "Olá! Aqui é da Angel Transportes."
+    mensagem || "Olá! Aqui é da Angel Transports."
   );
 
   const url = `https://wa.me/${telefone}?text=${texto}`;
@@ -792,7 +811,7 @@ function ligarParaNumero(numero?: string) {
   if (!telefone) {
     Alert.alert(
       "Telefone não informado",
-      "O telefone da Angel Transportes ainda não foi configurado."
+      "O telefone da Angel Transports ainda não foi configurado."
     );
     return;
   }
@@ -994,6 +1013,11 @@ async function cadastrarAluno() {
           turno:
             turno.trim(),
 
+          tipoTransporte,
+          horarioEmbarque: horarioEmbarque.trim(),
+          contatoEmergencia: contatoEmergencia.trim(),
+          statusContrato: "pendente",
+
           usuarioUid:
             usuario.uid,
 
@@ -1150,7 +1174,37 @@ async function buscarAlunos() {
 // APROVAR / RECUSAR ALUNOS - ADM
 // =====================================================
 
+async function usuarioEhAdmin() {
+  const usuario = auth.currentUser;
+
+  if (!usuario) return false;
+
+  try {
+    const token = await getIdTokenResult(usuario, true);
+    return token.claims.admin === true;
+  } catch {
+    return false;
+  }
+}
+
+async function exigirAdmin() {
+  const permitido = await usuarioEhAdmin();
+
+  if (!permitido) {
+    Alert.alert(
+      "Acesso negado",
+      "Esta ação é exclusiva do administrador."
+    );
+    return false;
+  }
+
+  return true;
+}
+
+
+
 async function aprovarAluno(aluno: Aluno) {
+  if (!(await exigirAdmin())) return;
   try {
     await setDoc(
       doc(db, "alunos", aluno.id),
@@ -1183,6 +1237,7 @@ async function aprovarAluno(aluno: Aluno) {
 }
 
 async function recusarAluno(aluno: Aluno) {
+  if (!(await exigirAdmin())) return;
   try {
     await setDoc(
       doc(db, "alunos", aluno.id),
@@ -1220,10 +1275,14 @@ function limparCadastro() {
   setBairro("");
   setEscola("");
   setTurno("");
+  setTipoTransporte("ida_volta");
+  setHorarioEmbarque("");
+  setContatoEmergencia("");
   setCadastroId("");
 }
 
 async function salvarEdicaoAluno() {
+  if (!(await exigirAdmin())) return;
   if (!alunoEditando) return;
 
   if (!alunoEditando.nomeAluno?.trim()) {
@@ -1244,6 +1303,12 @@ async function salvarEdicaoAluno() {
         valorMensal: Number(alunoEditando.valorMensal || 0),
         diaVencimento: Number(alunoEditando.diaVencimento || 10),
         observacoesInternas: alunoEditando.observacoesInternas || "",
+        tipoTransporte: alunoEditando.tipoTransporte || "ida_volta",
+        horarioEmbarque: alunoEditando.horarioEmbarque || "",
+        contatoEmergencia: alunoEditando.contatoEmergencia || "",
+        statusContrato: alunoEditando.statusContrato || "pendente",
+        dataInicioTransporte: alunoEditando.dataInicioTransporte || "",
+        dataFimTransporte: alunoEditando.dataFimTransporte || "",
         atualizadoEm: serverTimestamp(),
       },
       { merge: true }
@@ -1268,6 +1333,7 @@ async function salvarEdicaoAluno() {
 }
 
 async function alternarStatusAluno(aluno: Aluno) {
+  if (!(await exigirAdmin())) return;
   const ativoAtual =
     !aluno.statusCadastro || aluno.statusCadastro === "ativo";
 
@@ -1299,6 +1365,7 @@ async function alternarStatusAluno(aluno: Aluno) {
 }
 
 async function excluirAluno(aluno: Aluno) {
+  if (!(await exigirAdmin())) return;
   confirmarAcao(
     "Excluir aluno",
     `Tem certeza que deseja excluir ${aluno.nomeAluno || "este aluno"}? Essa ação remove o cadastro do Firebase.`,
@@ -1390,6 +1457,27 @@ async function verDetalhesAluno(aluno: Aluno) {
     }
   }
 
+
+  async function buscarPagamentosAno() {
+    try {
+      const consulta = query(
+        collection(db, "pagamentos"),
+        where("ano", "==", anoAtual)
+      );
+
+      const resposta = await getDocs(consulta);
+
+      setPagamentosAno(
+        resposta.docs.map((item) => ({
+          id: item.id,
+          ...(item.data() as Omit<Pagamento, "id">),
+        }))
+      );
+    } catch (error: any) {
+      console.log("ERRO PAGAMENTOS ANUAIS", error);
+    }
+  }
+
   async function alterarPagamento(
     aluno: Aluno,
     status: StatusPagamento,
@@ -1418,6 +1506,7 @@ async function verDetalhesAluno(aluno: Aluno) {
     valor?: number,
     observacao?: string
   ) {
+  if (!(await exigirAdmin())) return;
     try {
       const idPagamento = `${aluno.id}_${anoAtual}_${mesAtual}`;
 
@@ -1458,6 +1547,7 @@ async function verDetalhesAluno(aluno: Aluno) {
     valor?: number,
     observacao?: string
   ) {
+  if (!(await exigirAdmin())) return;
     if (!dataVencimento.trim()) {
       Alert.alert("Atenção", "Digite a data de vencimento.");
       return;
@@ -1523,6 +1613,7 @@ async function verDetalhesAluno(aluno: Aluno) {
   }
 
   async function salvarVan() {
+  if (!(await exigirAdmin())) return;
     if (!van.modelo.trim()) {
       Alert.alert(
         "Modelo obrigatório",
@@ -1585,6 +1676,7 @@ async function verDetalhesAluno(aluno: Aluno) {
   }
 
   async function criarAviso() {
+  if (!(await exigirAdmin())) return;
     if (!tituloAviso.trim()) {
       Alert.alert(
         "Título obrigatório",
@@ -1635,6 +1727,36 @@ async function verDetalhesAluno(aluno: Aluno) {
   // CONFIGURAÇÕES
   // =====================================================
 
+
+  function excluirAviso(aviso: Aviso) {
+    confirmarAcao(
+      "Excluir aviso",
+      `Tem certeza que deseja excluir "${aviso.titulo || "este aviso"}"?`,
+      async () => {
+        try {
+          if (!(await exigirAdmin())) return;
+
+          await deleteDoc(doc(db, "avisos", aviso.id));
+
+          await registrarLog(
+            "Aviso excluído",
+            aviso.titulo || aviso.id
+          );
+
+          await buscarAvisos();
+
+          Alert.alert("Aviso excluído", "O aviso foi excluído com sucesso.");
+        } catch (error: any) {
+          mostrarErro(
+            "Erro ao excluir aviso",
+            error,
+            "Não foi possível excluir o aviso."
+          );
+        }
+      }
+    );
+  }
+
   async function buscarConfiguracoes() {
     try {
       const snap = await getDoc(
@@ -1663,6 +1785,7 @@ async function verDetalhesAluno(aluno: Aluno) {
   async function salvarConfiguracoes(
     novoConfig: Configuracoes
   ) {
+  if (!(await exigirAdmin())) return;
     try {
       setConfig(novoConfig);
 
@@ -1752,6 +1875,67 @@ async function verDetalhesAluno(aluno: Aluno) {
 
     setNovoBairro("");
     await salvarConfiguracoes(novo);
+  }
+
+
+  function excluirEscola(escola: string) {
+    confirmarAcao(
+      "Excluir escola",
+      `Tem certeza que deseja remover "${escola}" da lista de escolas atendidas?`,
+      async () => {
+        try {
+          if (!(await exigirAdmin())) return;
+
+          const novoConfig = {
+            ...config,
+            escolas: config.escolas.filter((item) => item !== escola),
+          };
+
+          await salvarConfiguracoes(novoConfig);
+
+          await registrarLog(
+            "Escola removida",
+            escola
+          );
+        } catch (error: any) {
+          mostrarErro(
+            "Erro ao excluir escola",
+            error,
+            "Não foi possível remover essa escola."
+          );
+        }
+      }
+    );
+  }
+
+  function excluirBairro(bairro: string) {
+    confirmarAcao(
+      "Excluir bairro",
+      `Tem certeza que deseja remover "${bairro}" da lista de bairros atendidos?`,
+      async () => {
+        try {
+          if (!(await exigirAdmin())) return;
+
+          const novoConfig = {
+            ...config,
+            bairros: config.bairros.filter((item) => item !== bairro),
+          };
+
+          await salvarConfiguracoes(novoConfig);
+
+          await registrarLog(
+            "Bairro removido",
+            bairro
+          );
+        } catch (error: any) {
+          mostrarErro(
+            "Erro ao excluir bairro",
+            error,
+            "Não foi possível remover esse bairro."
+          );
+        }
+      }
+    );
   }
 
   // =====================================================
@@ -1919,8 +2103,10 @@ function exportarBackupCompleto() {
         if (snap.exists()) {
           setVan(snap.data() as Van);
         }
+        setFirebaseOnline(true);
       },
       (error) => {
+        setFirebaseOnline(false);
         console.log(
           "Erro ao sincronizar dados da van:",
           error
@@ -1943,8 +2129,10 @@ function exportarBackupCompleto() {
           telefoneContato:
             dados.telefoneContato || "",
         });
+        setFirebaseOnline(true);
       },
       (error) => {
+        setFirebaseOnline(false);
         console.log(
           "Erro ao sincronizar configurações:",
           error
@@ -1969,11 +2157,23 @@ function exportarBackupCompleto() {
     }
 
     if (tela === "admin") {
-      buscarAlunos();
-      buscarConfiguracoes();
-      buscarAvisos();
-      buscarVan();
-      buscarLogs();
+      usuarioEhAdmin().then((permitido) => {
+        if (!permitido) {
+          Alert.alert(
+            "Acesso negado",
+            "Sua conta não possui permissão de administrador."
+          );
+          setTela("menu");
+          return;
+        }
+
+        buscarAlunos();
+        buscarConfiguracoes();
+        buscarAvisos();
+        buscarVan();
+        buscarLogs();
+        buscarPagamentosAno();
+      });
     }
   }, [tela]);
 
@@ -1994,6 +2194,12 @@ function exportarBackupCompleto() {
     mesAtual,
     anoAtual,
   ]);
+
+  useEffect(() => {
+    if (tela === "admin" && rotaAdmin === "dashboard") {
+      buscarPagamentosAno();
+    }
+  }, [tela, rotaAdmin, anoAtual]);
 
   // =====================================================
   // DADOS CALCULADOS
@@ -2139,6 +2345,128 @@ function exportarBackupCompleto() {
     return p?.status !== "pago" && estaAtrasado(p?.dataVencimento);
   }).length;
 
+  const capacidadeVan = Number(String(van.capacidade || "").replace(/\D/g, "")) || 0;
+  const vagasDisponiveis = Math.max(capacidadeVan - alunosAtivos.length, 0);
+
+  const totalRecebidoAno = pagamentosAno
+    .filter((p) => p.status === "pago")
+    .reduce((soma, p) => soma + Number(p.valor || 0), 0);
+
+  const financeiroMensalAno = Array.from({ length: 12 }, (_, indice) => {
+    const mes = indice + 1;
+    const valor = pagamentosAno
+      .filter((p) => p.mes === mes && p.status === "pago")
+      .reduce((soma, p) => soma + Number(p.valor || 0), 0);
+
+    return { mes, valor };
+  });
+
+  const maiorValorMensal = Math.max(
+    ...financeiroMensalAno.map((item) => item.valor),
+    1
+  );
+
+  const alunosAtrasados = alunosAtivos.filter((aluno) => {
+    const p = pagamentos.find((item) => item.alunoId === aluno.id);
+    return p?.status !== "pago" && estaAtrasado(p?.dataVencimento);
+  });
+
+  const alunosVencendo = alunosAtivos.filter((aluno) => {
+    const p = pagamentos.find((item) => item.alunoId === aluno.id);
+    return p?.status !== "pago" && estaVencendoEmSeteDias(p?.dataVencimento);
+  });
+
+  // =====================================================
+  // CENTRAL DE AJUDA
+  // =====================================================
+
+  if (tela === "ajuda") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.page}>
+        <HeaderPagina
+          titulo="Central de ajuda"
+          subtitulo="Respostas rápidas para responsáveis e usuários."
+          voltar={() => setTela("inicio")}
+        />
+
+        <View style={styles.card}>
+          <Text style={styles.secaoTituloSemMargem}>Como cadastrar uma criança?</Text>
+          <Text style={styles.descricao}>
+            Crie sua conta, entre no sistema e preencha o cadastro da criança.
+            O cadastro ficará pendente até a aprovação do administrador.
+          </Text>
+
+          <Text style={styles.secaoTitulo}>Como sei se fui aprovado?</Text>
+          <Text style={styles.descricao}>
+            No perfil do responsável aparece a situação do cadastro de cada criança.
+          </Text>
+
+          <Text style={styles.secaoTitulo}>Como vejo os pagamentos?</Text>
+          <Text style={styles.descricao}>
+            Entre em “Ver meu perfil”. Lá aparecem a situação do mês e o histórico recente.
+          </Text>
+
+          <Text style={styles.secaoTitulo}>Esqueci minha senha</Text>
+          <Text style={styles.descricao}>
+            Na tela de entrada, digite seu e-mail e toque em “Esqueci minha senha”.
+          </Text>
+
+          <Text style={styles.secaoTitulo}>Preciso falar com a Angel Transports</Text>
+          <Text style={styles.descricao}>
+            Use o botão de ligação na página “Informações do transporte”.
+          </Text>
+        </View>
+      </ScrollView>
+    );
+  }
+
+  // =====================================================
+  // PRIVACIDADE E TERMOS
+  // =====================================================
+
+  if (tela === "privacidade") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.page}>
+        <HeaderPagina
+          titulo="Privacidade e termos"
+          subtitulo="Informações sobre o uso dos dados no sistema."
+          voltar={() => setTela("inicio")}
+        />
+
+        <View style={styles.card}>
+          <Text style={styles.secaoTituloSemMargem}>Dados utilizados</Text>
+          <Text style={styles.descricao}>
+            O sistema utiliza dados necessários para organizar o transporte escolar,
+            como nome da criança, responsável, telefone, escola, bairro, turno,
+            situação do cadastro e informações de pagamento.
+          </Text>
+
+          <Text style={styles.secaoTitulo}>Finalidade</Text>
+          <Text style={styles.descricao}>
+            Os dados são usados para administração do transporte, comunicação com
+            responsáveis, organização de mensalidades e atendimento.
+          </Text>
+
+          <Text style={styles.secaoTitulo}>Acesso</Text>
+          <Text style={styles.descricao}>
+            Responsáveis visualizam os próprios cadastros. Funções administrativas
+            são restritas ao administrador pelas regras do Firebase.
+          </Text>
+
+          <Text style={styles.secaoTitulo}>Segurança</Text>
+          <Text style={styles.descricao}>
+            O acesso usa autenticação do Firebase. Não compartilhe sua senha com outras pessoas.
+          </Text>
+
+          <Text style={styles.secaoTitulo}>Contato</Text>
+          <Text style={styles.descricao}>
+            Para dúvidas sobre seus dados, entre em contato diretamente com a Angel Transports.
+          </Text>
+        </View>
+      </ScrollView>
+    );
+  }
+
   // =====================================================
   // INFORMAÇÕES PÚBLICAS
   // =====================================================
@@ -2147,16 +2475,46 @@ function exportarBackupCompleto() {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.page}>
         <HeaderPagina
-          titulo="Conheça a Angel Transportes"
+          titulo="Conheça a Angel Transports"
           subtitulo="Informações atualizadas diretamente pelo nosso painel administrativo."
           voltar={() => setTela("inicio")}
         />
+
+        <View
+          style={[
+            styles.statusSistema,
+            firebaseOnline ? styles.statusSistemaOnline : styles.statusSistemaOffline,
+          ]}
+        >
+          <View
+            style={[
+              styles.statusBolinha,
+              { backgroundColor: firebaseOnline ? VERDE : VERMELHO },
+            ]}
+          />
+          <Text
+            style={[
+              styles.statusSistemaTexto,
+              { color: firebaseOnline ? VERDE : VERMELHO },
+            ]}
+          >
+            {firebaseOnline ? "Sistema conectado" : "Sistema temporariamente indisponível"}
+          </Text>
+        </View>
 
         <View style={styles.card}>
           <Text style={styles.secaoTituloSemMargem}>Nossa van</Text>
           <Info titulo="Modelo" valor={van.modelo || "Não informado"} />
           <Info titulo="Ano" valor={van.ano || "Não informado"} />
           <Info titulo="Capacidade" valor={van.capacidade || "Não informada"} />
+          <Info
+            titulo="Vagas disponíveis"
+            valor={
+              capacidadeVan > 0
+                ? String(vagasDisponiveis)
+                : "Capacidade não configurada"
+            }
+          />
           <Info titulo="Observações" valor={van.observacoes || "Sem observações"} />
         </View>
 
@@ -2191,7 +2549,7 @@ function exportarBackupCompleto() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.secaoTituloSemMargem}>Fale com a Angel Transportes</Text>
+          <Text style={styles.secaoTituloSemMargem}>Fale com a Angel Transports</Text>
           <Text style={styles.descricao}>
             Quer saber sobre disponibilidade, bairros atendidos ou valores? Entre em contato.
           </Text>
@@ -2203,6 +2561,18 @@ function exportarBackupCompleto() {
             }
           />
         </View>
+
+        <BotaoAnimado
+          texto="Central de ajuda"
+          secundario
+          onPress={() => setTela("ajuda")}
+        />
+
+        <BotaoAnimado
+          texto="Privacidade e termos"
+          secundario
+          onPress={() => setTela("privacidade")}
+        />
 
         <BotaoAnimado
           texto="Voltar para entrar ou criar conta"
@@ -2266,7 +2636,7 @@ function exportarBackupCompleto() {
               />
             </Animated.View>
 
-            <Text style={styles.title}>Angel Transportes</Text>
+            <Text style={styles.title}>Angel Transports</Text>
 
             <Text style={styles.subtitle}>
               Transporte escolar com segurança, organização e transparência
@@ -2415,6 +2785,39 @@ function exportarBackupCompleto() {
                   <Text style={styles.linkText}>Esqueci minha senha</Text>
                 </TouchableOpacity>
               )}
+
+              <View style={styles.rodapeCompleto}>
+                <View style={styles.rodapeDivisor} />
+
+                <Text style={styles.rodapeMarca}>Angel Transports</Text>
+                <Text style={styles.rodapeDescricao}>
+                  Transporte escolar com segurança, organização e transparência.
+                </Text>
+
+                <View style={styles.linksRodape}>
+                  <TouchableOpacity onPress={() => setTela("ajuda")}>
+                    <Text style={styles.linkRodapeText}>Central de ajuda</Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.rodapeSeparador}>•</Text>
+
+                  <TouchableOpacity onPress={() => setTela("privacidade")}>
+                    <Text style={styles.linkRodapeText}>Privacidade e termos</Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.rodapeSeparador}>•</Text>
+
+                  <TouchableOpacity
+                    onPress={() => ligarParaNumero(config.telefoneContato)}
+                  >
+                    <Text style={styles.linkRodapeText}>Contato</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.rodapeCopyright}>
+                  © 2026 Angel Transports. Todos os direitos reservados.
+                </Text>
+              </View>
             </View>
           </Animated.View>
         </ScrollView>
@@ -2461,6 +2864,12 @@ function exportarBackupCompleto() {
             texto="Ver avisos"
             secundario
             onPress={() => setTela("avisosUsuario")}
+          />
+
+          <BotaoAnimado
+            texto="Central de ajuda"
+            secundario
+            onPress={() => setTela("ajuda")}
           />
 
           <TouchableOpacity style={styles.linkButton} onPress={sair}>
@@ -2596,7 +3005,7 @@ function exportarBackupCompleto() {
       <ScrollView style={styles.container} contentContainerStyle={styles.page}>
         <HeaderPagina
           titulo="Avisos"
-          subtitulo="Comunicados da Angel Transportes."
+          subtitulo="Comunicados da Angel Transports."
           voltar={() => setTela("menu")}
         />
 
@@ -2679,6 +3088,52 @@ function exportarBackupCompleto() {
             value={turno}
             onChange={setTurno}
             placeholder="Ex: Manhã"
+          />
+
+          <Text style={styles.label}>Tipo de transporte</Text>
+          <View style={styles.opcoesTransporte}>
+            {[
+              ["ida", "Somente ida"],
+              ["volta", "Somente volta"],
+              ["ida_volta", "Ida e volta"],
+            ].map(([valorOpcao, textoOpcao]) => (
+              <TouchableOpacity
+                key={valorOpcao}
+                style={[
+                  styles.opcaoTransporte,
+                  tipoTransporte === valorOpcao && styles.opcaoTransporteAtiva,
+                ]}
+                onPress={() =>
+                  setTipoTransporte(
+                    valorOpcao as "ida" | "volta" | "ida_volta"
+                  )
+                }
+              >
+                <Text
+                  style={[
+                    styles.opcaoTransporteTexto,
+                    tipoTransporte === valorOpcao &&
+                      styles.opcaoTransporteTextoAtivo,
+                  ]}
+                >
+                  {textoOpcao}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Campo
+            label="Horário de embarque"
+            value={horarioEmbarque}
+            onChange={setHorarioEmbarque}
+            placeholder="Ex: 12:40"
+          />
+
+          <Campo
+            label="Contato de emergência"
+            value={contatoEmergencia}
+            onChange={setContatoEmergencia}
+            placeholder="Telefone com DDD"
           />
 
           <BotaoAnimado
@@ -2764,7 +3219,7 @@ function exportarBackupCompleto() {
       >
         <View>
           <Text style={styles.tag}>ADMINISTRADOR</Text>
-          <Text style={styles.adminTitle}>Angel Transportes</Text>
+          <Text style={styles.adminTitle}>Angel Transports</Text>
           <Text style={styles.adminSub}>
             Gestão completa do transporte escolar
           </Text>
@@ -2875,6 +3330,21 @@ function exportarBackupCompleto() {
               titulo="Previsto no mês"
               valor={`R$ ${totalPrevisto.toFixed(2).replace(".", ",")}`}
             />
+            <ResumoCard
+              titulo="Vagas disponíveis"
+              valor={
+                capacidadeVan > 0
+                  ? String(vagasDisponiveis)
+                  : "—"
+              }
+              verde={capacidadeVan > 0 && vagasDisponiveis > 0}
+              vermelho={capacidadeVan > 0 && vagasDisponiveis === 0}
+            />
+            <ResumoCard
+              titulo={`Recebido em ${anoAtual}`}
+              valor={`R$ ${totalRecebidoAno.toFixed(2).replace(".", ",")}`}
+              verde
+            />
           </View>
 
           <View style={styles.card}>
@@ -2893,6 +3363,83 @@ function exportarBackupCompleto() {
               total={Math.max(alunosAtivos.length, 1)}
               tipo="vermelho"
             />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.secaoTituloSemMargem}>
+              Financeiro anual — {anoAtual}
+            </Text>
+
+            <View style={styles.graficoAnual}>
+              {financeiroMensalAno.map((item) => {
+                const altura = Math.max(
+                  5,
+                  (item.valor / maiorValorMensal) * 120
+                );
+
+                return (
+                  <View key={item.mes} style={styles.graficoColunaArea}>
+                    <Text style={styles.graficoValor}>
+                      {item.valor > 0
+                        ? `R$ ${Math.round(item.valor)}`
+                        : ""}
+                    </Text>
+
+                    <View style={styles.graficoBase}>
+                      <View
+                        style={[
+                          styles.graficoBarra,
+                          { height: altura },
+                        ]}
+                      />
+                    </View>
+
+                    <Text style={styles.graficoMes}>
+                      {nomeMes(item.mes).slice(0, 3)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.secaoTituloSemMargem}>Alertas financeiros</Text>
+
+            {alunosAtrasados.length === 0 && alunosVencendo.length === 0 ? (
+              <Text style={styles.descricao}>
+                Nenhum alerta financeiro no momento.
+              </Text>
+            ) : (
+              <>
+                {alunosAtrasados.map((aluno) => (
+                  <View key={`atrasado-${aluno.id}`} style={styles.alertaLinha}>
+                    <Text style={styles.alertaTituloVermelho}>
+                      {aluno.nomeAluno}
+                    </Text>
+                    <Text style={styles.alertaDescricao}>Pagamento atrasado</Text>
+                  </View>
+                ))}
+
+                {alunosVencendo
+                  .filter(
+                    (aluno) =>
+                      !alunosAtrasados.some(
+                        (atrasado) => atrasado.id === aluno.id
+                      )
+                  )
+                  .map((aluno) => (
+                    <View key={`vencendo-${aluno.id}`} style={styles.alertaLinha}>
+                      <Text style={styles.alertaTituloAmarelo}>
+                        {aluno.nomeAluno}
+                      </Text>
+                      <Text style={styles.alertaDescricao}>
+                        Vencimento nos próximos 7 dias
+                      </Text>
+                    </View>
+                  ))}
+              </>
+            )}
           </View>
 
           <View style={styles.card}>
@@ -2990,7 +3537,12 @@ function exportarBackupCompleto() {
               <Text style={styles.filtroButtonText}>Inativos</Text>
             </TouchableOpacity>
 
-            
+            <TouchableOpacity
+              style={styles.exportarButton}
+              onPress={exportarAlunos}
+            >
+              <Text style={styles.exportarButtonText}>Exportar CSV</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.filtrosGrid}>
@@ -3105,6 +3657,118 @@ function exportarBackupCompleto() {
                 placeholder="Observações do ADM"
               />
 
+              <Text style={styles.label}>Tipo de transporte</Text>
+              <View style={styles.opcoesTransporte}>
+                {[
+                  ["ida", "Somente ida"],
+                  ["volta", "Somente volta"],
+                  ["ida_volta", "Ida e volta"],
+                ].map(([valorOpcao, textoOpcao]) => (
+                  <TouchableOpacity
+                    key={valorOpcao}
+                    style={[
+                      styles.opcaoTransporte,
+                      (alunoEditando.tipoTransporte || "ida_volta") === valorOpcao &&
+                        styles.opcaoTransporteAtiva,
+                    ]}
+                    onPress={() =>
+                      setAlunoEditando({
+                        ...alunoEditando,
+                        tipoTransporte: valorOpcao as
+                          | "ida"
+                          | "volta"
+                          | "ida_volta",
+                      })
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.opcaoTransporteTexto,
+                        (alunoEditando.tipoTransporte || "ida_volta") === valorOpcao &&
+                          styles.opcaoTransporteTextoAtivo,
+                      ]}
+                    >
+                      {textoOpcao}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Campo
+                label="Horário de embarque"
+                value={alunoEditando.horarioEmbarque || ""}
+                onChange={(v) =>
+                  setAlunoEditando({ ...alunoEditando, horarioEmbarque: v })
+                }
+                placeholder="Ex: 12:40"
+              />
+
+              <Campo
+                label="Contato de emergência"
+                value={alunoEditando.contatoEmergencia || ""}
+                onChange={(v) =>
+                  setAlunoEditando({ ...alunoEditando, contatoEmergencia: v })
+                }
+                placeholder="Telefone"
+              />
+
+              <Text style={styles.label}>Contrato</Text>
+              <View style={styles.opcoesTransporte}>
+                {[
+                  ["pendente", "Pendente"],
+                  ["assinado", "Assinado"],
+                ].map(([valorOpcao, textoOpcao]) => (
+                  <TouchableOpacity
+                    key={valorOpcao}
+                    style={[
+                      styles.opcaoTransporte,
+                      (alunoEditando.statusContrato || "pendente") === valorOpcao &&
+                        styles.opcaoTransporteAtiva,
+                    ]}
+                    onPress={() =>
+                      setAlunoEditando({
+                        ...alunoEditando,
+                        statusContrato: valorOpcao as "pendente" | "assinado",
+                      })
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.opcaoTransporteTexto,
+                        (alunoEditando.statusContrato || "pendente") === valorOpcao &&
+                          styles.opcaoTransporteTextoAtivo,
+                      ]}
+                    >
+                      {textoOpcao}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Campo
+                label="Data de início do transporte"
+                value={alunoEditando.dataInicioTransporte || ""}
+                onChange={(v) =>
+                  setAlunoEditando({
+                    ...alunoEditando,
+                    dataInicioTransporte: v,
+                  })
+                }
+                placeholder="Ex: 01/02/2026"
+              />
+
+              <Campo
+                label="Data de término do transporte"
+                value={alunoEditando.dataFimTransporte || ""}
+                onChange={(v) =>
+                  setAlunoEditando({
+                    ...alunoEditando,
+                    dataFimTransporte: v,
+                  })
+                }
+                placeholder="Ex: 15/12/2026"
+              />
+
               <View style={styles.acoesLinha}>
                 <BotaoAnimado
                   texto="Salvar alterações"
@@ -3143,6 +3807,34 @@ function exportarBackupCompleto() {
                 <Info
                   titulo="Vencimento mensal"
                   valor={`Dia ${alunoSelecionado.diaVencimento || 10}`}
+                />
+                <Info
+                  titulo="Transporte"
+                  valor={formatarTipoTransporte(alunoSelecionado.tipoTransporte)}
+                />
+                <Info
+                  titulo="Horário"
+                  valor={alunoSelecionado.horarioEmbarque || "Não informado"}
+                />
+                <Info
+                  titulo="Contato de emergência"
+                  valor={alunoSelecionado.contatoEmergencia || "Não informado"}
+                />
+                <Info
+                  titulo="Contrato"
+                  valor={
+                    alunoSelecionado.statusContrato === "assinado"
+                      ? "Assinado"
+                      : "Pendente"
+                  }
+                />
+                <Info
+                  titulo="Início"
+                  valor={alunoSelecionado.dataInicioTransporte || "Não informado"}
+                />
+                <Info
+                  titulo="Término"
+                  valor={alunoSelecionado.dataFimTransporte || "Não informado"}
                 />
               </View>
 
@@ -3216,7 +3908,7 @@ function exportarBackupCompleto() {
                       onPress={() =>
                         abrirWhatsApp(
                           aluno.telefone,
-                          `Olá ${aluno.nomeResponsavel || ""}! Aqui é da Angel Transportes.`
+                          `Olá ${aluno.nomeResponsavel || ""}! Aqui é da Angel Transports.`
                         )
                       }
                     >
@@ -3267,7 +3959,13 @@ function exportarBackupCompleto() {
             <Text style={styles.pagamentoExplicacao}>
               Marque quem pagou, defina vencimento, valor e observações.
             </Text>
-            
+
+            <TouchableOpacity
+              style={styles.exportarButton}
+              onPress={exportarPagamentos}
+            >
+              <Text style={styles.exportarButtonText}>Exportar CSV</Text>
+            </TouchableOpacity>
           </View>
 
           {carregandoPagamentos ? (
@@ -3391,7 +4089,18 @@ function exportarBackupCompleto() {
           {avisos.length === 0 ? (
             <Vazio texto="Nenhum aviso publicado." />
           ) : (
-            avisos.map((aviso) => <AvisoCard key={aviso.id} aviso={aviso} />)
+            avisos.map((aviso) => (
+              <View key={aviso.id} style={styles.card}>
+                <AvisoCard aviso={aviso} />
+
+                <TouchableOpacity
+                  style={styles.botaoExcluirAviso}
+                  onPress={() => excluirAviso(aviso)}
+                >
+                  <Text style={styles.botaoExcluirAvisoTexto}>Excluir aviso</Text>
+                </TouchableOpacity>
+              </View>
+            ))
           )}
         </>
       )}
@@ -3493,8 +4202,16 @@ function exportarBackupCompleto() {
 
             <View style={styles.chips}>
               {config.escolas.map((item, index) => (
-                <View key={`${item}-${index}`} style={styles.chip}>
-                  <Text style={styles.chipText}>{item}</Text>
+                <View key={`${item}-${index}`} style={styles.chipGerenciavel}>
+                  <Text style={styles.chipGerenciavelText}>{item}</Text>
+
+                  <TouchableOpacity
+                    style={styles.chipExcluirButton}
+                    onPress={() => excluirEscola(item)}
+                    accessibilityLabel={`Excluir escola ${item}`}
+                  >
+                    <Text style={styles.chipExcluirText}>×</Text>
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
@@ -3514,8 +4231,16 @@ function exportarBackupCompleto() {
 
             <View style={styles.chips}>
               {config.bairros.map((item, index) => (
-                <View key={`${item}-${index}`} style={styles.chip}>
-                  <Text style={styles.chipText}>{item}</Text>
+                <View key={`${item}-${index}`} style={styles.chipGerenciavel}>
+                  <Text style={styles.chipGerenciavelText}>{item}</Text>
+
+                  <TouchableOpacity
+                    style={styles.chipExcluirButton}
+                    onPress={() => excluirBairro(item)}
+                    accessibilityLabel={`Excluir bairro ${item}`}
+                  >
+                    <Text style={styles.chipExcluirText}>×</Text>
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
@@ -3818,6 +4543,16 @@ function PagamentoCard({
         }
       />
 
+      {pago && (
+        <BotaoAnimado
+          texto="Gerar comprovante"
+          secundario
+          onPress={() =>
+            gerarComprovantePagamento(aluno, pagamento)
+          }
+        />
+      )}
+
       {pagamento?.dataVencimento && (
         <View style={styles.dataBox}>
           <Text style={styles.dataBoxLabel}>Vencimento atual</Text>
@@ -4109,6 +4844,22 @@ function AlunoCard({ aluno }: { aluno: Aluno }) {
         <Info titulo="Telefone" valor={aluno.telefone} />
         <Info titulo="Bairro" valor={aluno.bairro} />
         <Info titulo="Turno" valor={aluno.turno} />
+        <Info
+          titulo="Transporte"
+          valor={formatarTipoTransporte(aluno.tipoTransporte)}
+        />
+        <Info
+          titulo="Embarque"
+          valor={aluno.horarioEmbarque || "Não informado"}
+        />
+        <Info
+          titulo="Contrato"
+          valor={
+            aluno.statusContrato === "assinado"
+              ? "Assinado"
+              : "Pendente"
+          }
+        />
       </View>
     </View>
   );
@@ -4228,6 +4979,118 @@ function formatarTimestamp(timestamp: any) {
   }
 }
 
+function formatarTipoTransporte(
+  tipo?: "ida" | "volta" | "ida_volta"
+) {
+  if (tipo === "ida") return "Somente ida";
+  if (tipo === "volta") return "Somente volta";
+  return "Ida e volta";
+}
+
+function gerarComprovantePagamento(
+  aluno: Aluno,
+  pagamento?: Pagamento
+) {
+  if (!pagamento || pagamento.status !== "pago") {
+    Alert.alert(
+      "Pagamento não confirmado",
+      "O comprovante só pode ser gerado depois que o pagamento estiver marcado como pago."
+    );
+    return;
+  }
+
+  const html = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Comprovante - Angel Transports</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            padding: 40px;
+            color: #2b2024;
+          }
+          .comprovante {
+            max-width: 700px;
+            margin: 0 auto;
+            border: 1px solid #e3d5da;
+            border-radius: 18px;
+            padding: 32px;
+          }
+          h1 { color: #69172D; margin-bottom: 4px; }
+          .linha { margin: 12px 0; }
+          .rotulo { color: #7d7075; font-size: 12px; }
+          .valor { font-size: 17px; font-weight: bold; }
+          .ok {
+            color: #248A46;
+            font-weight: bold;
+            margin-top: 24px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="comprovante">
+          <h1>Angel Transports</h1>
+          <p>Comprovante de pagamento</p>
+
+          <div class="linha">
+            <div class="rotulo">Aluno</div>
+            <div class="valor">${aluno.nomeAluno || ""}</div>
+          </div>
+
+          <div class="linha">
+            <div class="rotulo">Referência</div>
+            <div class="valor">${nomeMes(pagamento.mes)} / ${pagamento.ano}</div>
+          </div>
+
+          <div class="linha">
+            <div class="rotulo">Valor</div>
+            <div class="valor">R$ ${Number(pagamento.valor || 0)
+              .toFixed(2)
+              .replace(".", ",")}</div>
+          </div>
+
+          <div class="linha">
+            <div class="rotulo">Data registrada</div>
+            <div class="valor">${formatarTimestamp(pagamento.dataPagamento)}</div>
+          </div>
+
+          <div class="ok">PAGAMENTO CONFIRMADO</div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  if (Platform.OS === "web") {
+    const g: any = globalThis as any;
+    const janela = g.window?.open("", "_blank");
+
+    if (!janela) {
+      Alert.alert(
+        "Pop-up bloqueado",
+        "Permita pop-ups para gerar o comprovante."
+      );
+      return;
+    }
+
+    janela.document.write(html);
+    janela.document.close();
+    janela.focus();
+
+    setTimeout(() => {
+      janela.print();
+    }, 350);
+
+    return;
+  }
+
+  Alert.alert(
+    "Comprovante",
+    "Na versão web você pode gerar e salvar o comprovante como PDF pelo navegador."
+  );
+}
+
 function nomeMes(mes: number) {
   return [
     "Janeiro",
@@ -4307,6 +5170,257 @@ function estaVencendoEmSeteDias(data?: string) {
 // =====================================================
 
 const styles = StyleSheet.create({
+  statusSistema: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    alignSelf: "flex-start",
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    borderRadius: 99,
+    marginBottom: 18,
+    borderWidth: 1,
+  },
+
+  statusSistemaOnline: {
+    backgroundColor: "#EFFAF2",
+    borderColor: "#BDE4C7",
+  },
+
+  statusSistemaOffline: {
+    backgroundColor: "#FFF0F2",
+    borderColor: "#ECB6BF",
+  },
+
+  statusBolinha: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+  },
+
+  statusSistemaTexto: {
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  chipGerenciavel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#F4E9ED",
+    borderWidth: 1,
+    borderColor: "#DFC8D0",
+    borderRadius: 999,
+    paddingLeft: 14,
+    paddingRight: 5,
+    paddingVertical: 5,
+  },
+
+  chipGerenciavelText: {
+    color: VINHO_ESCURO,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  chipExcluirButton: {
+    width: 27,
+    height: 27,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF",
+    borderWidth: 1,
+    borderColor: "#E4BFC6",
+  },
+
+  chipExcluirText: {
+    color: VERMELHO,
+    fontSize: 19,
+    fontWeight: "900",
+    lineHeight: 21,
+  },
+
+  botaoExcluirAviso: {
+    width: "100%",
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: VERMELHO,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF7F7",
+  },
+
+  botaoExcluirAvisoTexto: {
+    color: VERMELHO,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  rodapeCompleto: {
+    width: "100%",
+    alignItems: "center",
+    marginTop: 28,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+
+  rodapeDivisor: {
+    width: "100%",
+    height: 1,
+    backgroundColor: "#E8DDE1",
+    marginBottom: 22,
+  },
+
+  rodapeMarca: {
+    color: VINHO_ESCURO,
+    fontSize: 17,
+    fontWeight: "900",
+    marginBottom: 6,
+  },
+
+  rodapeDescricao: {
+    color: "#75686C",
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+    maxWidth: 430,
+    marginBottom: 14,
+  },
+
+  rodapeSeparador: {
+    color: "#B8A8AD",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  rodapeCopyright: {
+    color: "#9A8B90",
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 12,
+  },
+
+  linksRodape: {
+    flexDirection: "row",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: 18,
+    paddingTop: 6,
+    paddingBottom: 4,
+  },
+
+  linkRodapeText: {
+    color: VINHO,
+    fontSize: 12,
+    fontWeight: "800",
+    textDecorationLine: "underline",
+  },
+
+  opcoesTransporte: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 9,
+    marginBottom: 18,
+  },
+
+  opcaoTransporte: {
+    flexGrow: 1,
+    minWidth: 120,
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: "#FAF6F8",
+    borderWidth: 1,
+    borderColor: "#E5D8DD",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+
+  opcaoTransporteAtiva: {
+    backgroundColor: VINHO,
+    borderColor: VINHO,
+  },
+
+  opcaoTransporteTexto: {
+    color: VINHO,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  opcaoTransporteTextoAtivo: {
+    color: BRANCO,
+  },
+
+  graficoAnual: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 6,
+    minHeight: 180,
+    paddingTop: 16,
+  },
+
+  graficoColunaArea: {
+    flex: 1,
+    minWidth: 28,
+    alignItems: "center",
+  },
+
+  graficoValor: {
+    color: "#776B6F",
+    fontSize: 8,
+    minHeight: 16,
+    textAlign: "center",
+  },
+
+  graficoBase: {
+    height: 125,
+    width: "72%",
+    justifyContent: "flex-end",
+    backgroundColor: "#F1E8EB",
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+
+  graficoBarra: {
+    width: "100%",
+    backgroundColor: VINHO,
+    borderRadius: 10,
+  },
+
+  graficoMes: {
+    color: "#665A5E",
+    fontSize: 9,
+    fontWeight: "800",
+    marginTop: 7,
+  },
+
+  alertaLinha: {
+    borderTopWidth: 1,
+    borderTopColor: "#EEE3E7",
+    paddingVertical: 12,
+  },
+
+  alertaTituloVermelho: {
+    color: VERMELHO,
+    fontWeight: "900",
+    fontSize: 14,
+  },
+
+  alertaTituloAmarelo: {
+    color: AMARELO,
+    fontWeight: "900",
+    fontSize: 14,
+  },
+
+  alertaDescricao: {
+    color: "#776B6F",
+    fontSize: 12,
+    marginTop: 3,
+  },
+
   statusCadastroInativo: {
     backgroundColor: "#EEF0F3",
   },
