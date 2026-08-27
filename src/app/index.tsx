@@ -9,6 +9,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -17,6 +18,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -58,6 +60,7 @@ const BRANCO = "#FFFFFF";
 const VERDE = "#248A46";
 const VERMELHO = "#B83A48";
 const AMARELO = "#B7791F";
+const TERMOS_VERSAO = "1.1";
 
 // =====================================================
 // TIPOS
@@ -72,6 +75,7 @@ type Tela =
   | "avisosUsuario"
   | "ajuda"
   | "privacidade"
+  | "termosPendentes"
   | "sucesso"
   | "admin";
 
@@ -104,6 +108,7 @@ type Aluno = {
   valorMensal?: number;
   diaVencimento?: number;
   observacoesInternas?: string;
+  observacoesResponsavel?: string;
   tipoTransporte?: "ida" | "volta" | "ida_volta";
   horarioEmbarque?: string;
   contatoEmergencia?: string;
@@ -156,11 +161,32 @@ type LogSistema = {
   criadoEm?: any;
 };
 
+type AceiteTermos = {
+  id: string;
+  name?: string;
+  email?: string;
+  termosVersao?: string;
+  termosAceitosEm?: any;
+};
+
+type HistoricoAluno = {
+  id: string;
+  alunoId: string;
+  acao: string;
+  autorEmail?: string;
+  autorUid?: string;
+  autorTipo?: "admin" | "responsavel";
+  criadoEm?: any;
+};
+
 // =====================================================
 // APP PRINCIPAL
 // =====================================================
 
 export default function HomeScreen() {
+  const { width: larguraTela } = useWindowDimensions();
+  const mobile = larguraTela <= 600;
+
   const [tela, setTela] = useState<Tela>("inicio");
   const [modo, setModo] = useState<"login" | "criar">("login");
 
@@ -174,22 +200,28 @@ export default function HomeScreen() {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const logoAnim = useRef(new Animated.Value(0)).current;
   const brilhoAnim = useRef(new Animated.Value(0)).current;
+  const graficoAnim = useRef(new Animated.Value(0)).current;
+  const [confirmacao, setConfirmacao] = useState<{
+    titulo: string;
+    mensagem: string;
+    confirmar: () => void;
+  } | null>(null);
 
   useEffect(() => {
-    fadeAnim.setValue(0.85);
-    slideAnim.setValue(18);
+    fadeAnim.setValue(0);
+    slideAnim.setValue(24);
 
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 420,
+        duration: 360,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.timing(slideAnim, {
+      Animated.spring(slideAnim, {
         toValue: 0,
-        duration: 420,
-        easing: Easing.out(Easing.cubic),
+        speed: 18,
+        bounciness: 5,
         useNativeDriver: true,
       }),
     ]).start();
@@ -242,6 +274,7 @@ export default function HomeScreen() {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [confirmarSenha, setConfirmarSenha] = useState("");
+  const [aceitouTermos, setAceitouTermos] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erroLogin, setErroLogin] = useState("");
 
@@ -256,12 +289,13 @@ export default function HomeScreen() {
   const [cadastroId, setCadastroId] = useState("");
   const [tipoTransporte, setTipoTransporte] =
     useState<"ida" | "volta" | "ida_volta">("ida_volta");
-  const [horarioEmbarque, setHorarioEmbarque] = useState("");
   const [contatoEmergencia, setContatoEmergencia] = useState("");
+  const [observacoesResponsavel, setObservacoesResponsavel] = useState("");
 
   // PERFIL
   const [meusAlunos, setMeusAlunos] = useState<Aluno[]>([]);
   const [carregandoPerfil, setCarregandoPerfil] = useState(false);
+  const [alunoResponsavelEditando, setAlunoResponsavelEditando] = useState<Aluno | null>(null);
 
   // PAGAMENTOS
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
@@ -300,7 +334,7 @@ export default function HomeScreen() {
   // BUSCA E GESTÃO
   const [buscaAluno, setBuscaAluno] = useState("");
   const [filtroStatus, setFiltroStatus] =
-    useState<"todos" | "ativo" | "inativo">("todos");
+    useState<"todos" | "ativo" | "inativo" | "pendente" | "recusado">("todos");
   const [filtroEscola, setFiltroEscola] = useState("");
   const [filtroBairro, setFiltroBairro] = useState("");
   const [filtroTurno, setFiltroTurno] = useState("");
@@ -309,6 +343,8 @@ export default function HomeScreen() {
   const [alunoSelecionado, setAlunoSelecionado] = useState<Aluno | null>(null);
   const [alunoEditando, setAlunoEditando] = useState<Aluno | null>(null);
   const [historicoSelecionado, setHistoricoSelecionado] = useState<Pagamento[]>([]);
+  const [historicoAlunoSelecionado, setHistoricoAlunoSelecionado] =
+    useState<HistoricoAluno[]>([]);
 
   // PERFIL DO RESPONSÁVEL
   const [pagamentosPerfil, setPagamentosPerfil] = useState<Pagamento[]>([]);
@@ -316,12 +352,57 @@ export default function HomeScreen() {
   // LOGS
   const [logsSistema, setLogsSistema] = useState<LogSistema[]>([]);
   const [carregandoLogs, setCarregandoLogs] = useState(false);
+  const [aceitesTermos, setAceitesTermos] = useState<AceiteTermos[]>([]);
+  const [carregandoAceites, setCarregandoAceites] = useState(false);
 
   // SEGURANÇA
   const [novaSenhaPerfil, setNovaSenhaPerfil] = useState("");
 
   // STATUS DO SISTEMA
   const [firebaseOnline, setFirebaseOnline] = useState(true);
+  const [mensagemSistema, setMensagemSistema] = useState("");
+  const [aceiteNovaVersao, setAceiteNovaVersao] = useState(false);
+  const [buscaGlobalAdmin, setBuscaGlobalAdmin] = useState("");
+  const [graficoTooltip, setGraficoTooltip] = useState<{
+    mes: number;
+    valor: number;
+  } | null>(null);
+  const headerScroll = useRef(new Animated.Value(0)).current;
+
+function mostrarSucessoNaTela(mensagem: string) {
+  setMensagemSistema(mensagem);
+
+  setTimeout(() => {
+    setMensagemSistema((atual) => (atual === mensagem ? "" : atual));
+  }, 4000);
+}
+
+function telefoneValido(numero?: string) {
+  const digitos = (numero || "").replace(/\D/g, "");
+  return digitos.length === 10 || digitos.length === 11;
+}
+
+async function registrarHistoricoAluno(
+  alunoId: string,
+  acao: string,
+  autorTipo: "admin" | "responsavel"
+) {
+  try {
+    const usuario = auth.currentUser;
+    if (!usuario) return;
+
+    await addDoc(collection(db, "historicoAlunos"), {
+      alunoId,
+      acao,
+      autorEmail: usuario.email || "",
+      autorUid: usuario.uid,
+      autorTipo,
+      criadoEm: serverTimestamp(),
+    });
+  } catch (error) {
+    console.log("Não foi possível registrar histórico do aluno:", error);
+  }
+}
 
 // =====================================================
 // LOGIN, CONTA E MENSAGENS DE ERRO
@@ -477,6 +558,21 @@ async function fazerLogin() {
       return;
     }
 
+    const perfilSnap = await getDoc(
+      doc(db, "users", credencial.user.uid)
+    );
+
+    const perfilDados = perfilSnap.exists() ? perfilSnap.data() : null;
+
+    if (
+      !perfilDados?.termosAceitos ||
+      perfilDados?.termosVersao !== TERMOS_VERSAO
+    ) {
+      setAceiteNovaVersao(false);
+      setTela("termosPendentes");
+      return;
+    }
+
     setTela("menu");
   } catch (error: any) {
     console.log("ERRO LOGIN:", error);
@@ -598,6 +694,14 @@ async function criarConta() {
     return;
   }
 
+  if (!aceitouTermos) {
+    Alert.alert(
+      "Aceite necessário",
+      "Para criar sua conta, marque que você leu e aceita os Termos de Uso e a Política de Privacidade."
+    );
+    return;
+  }
+
   try {
     setCarregando(true);
 
@@ -636,8 +740,25 @@ async function criarConta() {
 
           role: "responsavel",
 
+          termosAceitos: true,
+          termosVersao: TERMOS_VERSAO,
+          termosAceitosEm: serverTimestamp(),
+
           criadoEm:
             serverTimestamp(),
+        }
+      );
+
+      // Registro separado e permanente do aceite.
+      // A regra do Firestore deve impedir update/delete nesta coleção.
+      await setDoc(
+        doc(db, "aceitesTermos", `${credencial.user.uid}_${TERMOS_VERSAO}`),
+        {
+          name: nomeLimpo,
+          email: credencial.user.email || emailLimpo,
+          termosVersao: TERMOS_VERSAO,
+          termosAceitosEm: serverTimestamp(),
+          userId: credencial.user.uid,
         }
       );
     } catch (errorFirestore: any) {
@@ -652,6 +773,7 @@ async function criarConta() {
 
     setSenha("");
     setConfirmarSenha("");
+    setAceitouTermos(false);
 
     Alert.alert(
       "Conta registrada!",
@@ -734,20 +856,11 @@ function confirmarAcao(
   mensagem: string,
   confirmar: () => void
 ) {
-  if (Platform.OS === "web") {
-    const g: any = globalThis as any;
-    if (g.confirm(`${titulo}\n\n${mensagem}`)) confirmar();
-    return;
-  }
-
-  Alert.alert(titulo, mensagem, [
-    { text: "Cancelar", style: "cancel" },
-    {
-      text: "Confirmar",
-      style: "destructive",
-      onPress: confirmar,
-    },
-  ]);
+  setConfirmacao({
+    titulo,
+    mensagem,
+    confirmar,
+  });
 }
 
 function normalizarTelefoneBrasil(numero?: string) {
@@ -778,7 +891,7 @@ function abrirWhatsApp(numero?: string, mensagem?: string) {
   }
 
   const texto = encodeURIComponent(
-    mensagem || "Olá! Aqui é da Angel Transportes."
+    mensagem || "Olá! Aqui é da Angel Transports."
   );
 
   const url = `https://wa.me/${telefone}?text=${texto}`;
@@ -811,7 +924,7 @@ function ligarParaNumero(numero?: string) {
   if (!telefone) {
     Alert.alert(
       "Telefone não informado",
-      "O telefone da Angel Transportes ainda não foi configurado."
+      "O telefone da Angel Transports ainda não foi configurado."
     );
     return;
   }
@@ -986,6 +1099,34 @@ async function cadastrarAluno() {
       return;
     }
 
+    const existentes = await getDocs(
+      query(
+        collection(db, "alunos"),
+        where("usuarioUid", "==", usuario.uid)
+      )
+    );
+
+    const nomeNormalizado = nomeAluno.trim().toLowerCase();
+    const escolaNormalizada = escola.trim().toLowerCase();
+
+    const duplicado = existentes.docs.some((item) => {
+      const dados = item.data() as Aluno;
+
+      return (
+        (dados.nomeAluno || "").trim().toLowerCase() === nomeNormalizado &&
+        (dados.escola || "").trim().toLowerCase() === escolaNormalizada &&
+        dados.statusCadastro !== "recusado"
+      );
+    });
+
+    if (duplicado) {
+      Alert.alert(
+        "Cadastro já existente",
+        "Já existe uma criança com esse nome e escola vinculada à sua conta."
+      );
+      return;
+    }
+
     // SALVA O ALUNO COMO PENDENTE
 
     const documento =
@@ -1014,8 +1155,8 @@ async function cadastrarAluno() {
             turno.trim(),
 
           tipoTransporte,
-          horarioEmbarque: horarioEmbarque.trim(),
           contatoEmergencia: contatoEmergencia.trim(),
+          observacoesResponsavel: observacoesResponsavel.trim(),
           statusContrato: "pendente",
 
           usuarioUid:
@@ -1048,6 +1189,12 @@ async function cadastrarAluno() {
       documento.id
     );
 
+    await registrarHistoricoAluno(
+      documento.id,
+      "Cadastro criado pelo responsável",
+      "responsavel"
+    );
+
     setTela("sucesso");
   } catch (error: any) {
     mostrarErro(
@@ -1059,6 +1206,102 @@ async function cadastrarAluno() {
     setSalvando(false);
   }
 
+}
+
+
+async function salvarEdicaoResponsavel() {
+  const usuario = auth.currentUser;
+
+  if (!usuario || !alunoResponsavelEditando) {
+    Alert.alert("Sessão expirada", "Entre novamente para editar o cadastro.");
+    return;
+  }
+
+  // Proteção também no front: o responsável só edita um cadastro vinculado ao próprio UID.
+  if (alunoResponsavelEditando.usuarioUid !== usuario.uid) {
+    Alert.alert("Acesso negado", "Você só pode editar os seus próprios alunos.");
+    setAlunoResponsavelEditando(null);
+    return;
+  }
+
+  if (!alunoResponsavelEditando.nomeAluno?.trim()) {
+    Alert.alert("Nome obrigatório", "Informe o nome da criança.");
+    return;
+  }
+
+  if (!alunoResponsavelEditando.nomeResponsavel?.trim()) {
+    Alert.alert("Responsável obrigatório", "Informe o nome do responsável.");
+    return;
+  }
+
+  if (!telefoneValido(alunoResponsavelEditando.telefone)) {
+    Alert.alert("Telefone inválido", "Digite um telefone válido com DDD.");
+    return;
+  }
+
+  if (!alunoResponsavelEditando.bairro?.trim()) {
+    Alert.alert("Bairro obrigatório", "Informe o bairro.");
+    return;
+  }
+
+  if (!alunoResponsavelEditando.escola?.trim()) {
+    Alert.alert("Escola obrigatória", "Informe a escola.");
+    return;
+  }
+
+  if (!alunoResponsavelEditando.turno?.trim()) {
+    Alert.alert("Turno obrigatório", "Informe o turno.");
+    return;
+  }
+
+  try {
+    setSalvando(true);
+
+    const dadosPermitidos = {
+      nomeAluno: alunoResponsavelEditando.nomeAluno?.trim() || "",
+      nomeResponsavel: alunoResponsavelEditando.nomeResponsavel?.trim() || "",
+      telefone: alunoResponsavelEditando.telefone?.trim() || "",
+      bairro: alunoResponsavelEditando.bairro?.trim() || "",
+      escola: alunoResponsavelEditando.escola?.trim() || "",
+      turno: alunoResponsavelEditando.turno?.trim() || "",
+      tipoTransporte: alunoResponsavelEditando.tipoTransporte || "ida_volta",
+      contatoEmergencia: alunoResponsavelEditando.contatoEmergencia?.trim() || "",
+      observacoesResponsavel:
+        alunoResponsavelEditando.observacoesResponsavel?.trim() || "",
+      atualizadoEm: serverTimestamp(),
+    };
+
+    await setDoc(
+      doc(db, "alunos", alunoResponsavelEditando.id),
+      dadosPermitidos,
+      { merge: true }
+    );
+
+    setMeusAlunos((listaAtual) =>
+      listaAtual.map((item) =>
+        item.id === alunoResponsavelEditando.id
+          ? { ...item, ...dadosPermitidos }
+          : item
+      )
+    );
+
+    await registrarHistoricoAluno(
+      alunoResponsavelEditando.id,
+      "Dados atualizados pelo responsável",
+      "responsavel"
+    );
+
+    setAlunoResponsavelEditando(null);
+    mostrarSucessoNaTela("Dados da criança atualizados com sucesso.");
+  } catch (error: any) {
+    mostrarErro(
+      "Erro ao editar cadastro",
+      error,
+      "Não foi possível salvar as alterações."
+    );
+  } finally {
+    setSalvando(false);
+  }
 }
 
 // =====================================================
@@ -1205,6 +1448,7 @@ async function exigirAdmin() {
 
 async function aprovarAluno(aluno: Aluno) {
   if (!(await exigirAdmin())) return;
+
   try {
     await setDoc(
       doc(db, "alunos", aluno.id),
@@ -1220,8 +1464,21 @@ async function aprovarAluno(aluno: Aluno) {
       "Aluno aprovado",
       aluno.nomeAluno || aluno.id
     );
+    await registrarHistoricoAluno(aluno.id, "Aluno aprovado", "admin");
 
-    await buscarAlunos();
+    // Atualiza só o aluno alterado na tela, sem buscar a lista inteira novamente.
+    setAlunos((listaAtual) =>
+      listaAtual.map((item) =>
+        item.id === aluno.id
+          ? {
+              ...item,
+              statusCadastro: "ativo",
+              aprovadoEm: new Date(),
+              recusadoEm: null,
+            }
+          : item
+      )
+    );
 
     Alert.alert(
       "Aluno aprovado",
@@ -1238,6 +1495,7 @@ async function aprovarAluno(aluno: Aluno) {
 
 async function recusarAluno(aluno: Aluno) {
   if (!(await exigirAdmin())) return;
+
   try {
     await setDoc(
       doc(db, "alunos", aluno.id),
@@ -1252,8 +1510,19 @@ async function recusarAluno(aluno: Aluno) {
       "Cadastro recusado",
       aluno.nomeAluno || aluno.id
     );
+    await registrarHistoricoAluno(aluno.id, "Cadastro recusado", "admin");
 
-    await buscarAlunos();
+    setAlunos((listaAtual) =>
+      listaAtual.map((item) =>
+        item.id === aluno.id
+          ? {
+              ...item,
+              statusCadastro: "recusado",
+              recusadoEm: new Date(),
+            }
+          : item
+      )
+    );
 
     Alert.alert(
       "Cadastro recusado",
@@ -1276,7 +1545,6 @@ function limparCadastro() {
   setEscola("");
   setTurno("");
   setTipoTransporte("ida_volta");
-  setHorarioEmbarque("");
   setContatoEmergencia("");
   setCadastroId("");
 }
@@ -1290,25 +1558,44 @@ async function salvarEdicaoAluno() {
     return;
   }
 
+  const alunoAtualizado: Aluno = {
+    ...alunoEditando,
+    nomeAluno: alunoEditando.nomeAluno?.trim() || "",
+    nomeResponsavel: alunoEditando.nomeResponsavel?.trim() || "",
+    telefone: alunoEditando.telefone?.trim() || "",
+    bairro: alunoEditando.bairro?.trim() || "",
+    escola: alunoEditando.escola?.trim() || "",
+    turno: alunoEditando.turno?.trim() || "",
+    valorMensal: Number(alunoEditando.valorMensal || 0),
+    diaVencimento: Number(alunoEditando.diaVencimento || 10),
+    observacoesInternas: alunoEditando.observacoesInternas || "",
+    tipoTransporte: alunoEditando.tipoTransporte || "ida_volta",
+    horarioEmbarque: alunoEditando.horarioEmbarque || "",
+    contatoEmergencia: alunoEditando.contatoEmergencia || "",
+    statusContrato: alunoEditando.statusContrato || "pendente",
+    dataInicioTransporte: alunoEditando.dataInicioTransporte || "",
+    dataFimTransporte: alunoEditando.dataFimTransporte || "",
+  };
+
   try {
     await setDoc(
       doc(db, "alunos", alunoEditando.id),
       {
-        nomeAluno: alunoEditando.nomeAluno?.trim() || "",
-        nomeResponsavel: alunoEditando.nomeResponsavel?.trim() || "",
-        telefone: alunoEditando.telefone?.trim() || "",
-        bairro: alunoEditando.bairro?.trim() || "",
-        escola: alunoEditando.escola?.trim() || "",
-        turno: alunoEditando.turno?.trim() || "",
-        valorMensal: Number(alunoEditando.valorMensal || 0),
-        diaVencimento: Number(alunoEditando.diaVencimento || 10),
-        observacoesInternas: alunoEditando.observacoesInternas || "",
-        tipoTransporte: alunoEditando.tipoTransporte || "ida_volta",
-        horarioEmbarque: alunoEditando.horarioEmbarque || "",
-        contatoEmergencia: alunoEditando.contatoEmergencia || "",
-        statusContrato: alunoEditando.statusContrato || "pendente",
-        dataInicioTransporte: alunoEditando.dataInicioTransporte || "",
-        dataFimTransporte: alunoEditando.dataFimTransporte || "",
+        nomeAluno: alunoAtualizado.nomeAluno,
+        nomeResponsavel: alunoAtualizado.nomeResponsavel,
+        telefone: alunoAtualizado.telefone,
+        bairro: alunoAtualizado.bairro,
+        escola: alunoAtualizado.escola,
+        turno: alunoAtualizado.turno,
+        valorMensal: alunoAtualizado.valorMensal,
+        diaVencimento: alunoAtualizado.diaVencimento,
+        observacoesInternas: alunoAtualizado.observacoesInternas,
+        tipoTransporte: alunoAtualizado.tipoTransporte,
+        horarioEmbarque: alunoAtualizado.horarioEmbarque,
+        contatoEmergencia: alunoAtualizado.contatoEmergencia,
+        statusContrato: alunoAtualizado.statusContrato,
+        dataInicioTransporte: alunoAtualizado.dataInicioTransporte,
+        dataFimTransporte: alunoAtualizado.dataFimTransporte,
         atualizadoEm: serverTimestamp(),
       },
       { merge: true }
@@ -1316,13 +1603,27 @@ async function salvarEdicaoAluno() {
 
     await registrarLog(
       "Aluno editado",
-      alunoEditando.nomeAluno || alunoEditando.id
+      alunoAtualizado.nomeAluno || alunoAtualizado.id
+    );
+    await registrarHistoricoAluno(
+      alunoAtualizado.id,
+      "Dados atualizados pelo administrador",
+      "admin"
+    );
+
+    setAlunos((listaAtual) =>
+      listaAtual.map((item) =>
+        item.id === alunoAtualizado.id ? alunoAtualizado : item
+      )
+    );
+
+    setAlunoSelecionado((atual) =>
+      atual?.id === alunoAtualizado.id ? alunoAtualizado : atual
     );
 
     setAlunoEditando(null);
-    await buscarAlunos();
 
-    Alert.alert("Aluno atualizado", "As alterações foram salvas.");
+    mostrarSucessoNaTela("Alterações do aluno salvas com sucesso.");
   } catch (error: any) {
     mostrarErro(
       "Erro ao editar aluno",
@@ -1334,10 +1635,12 @@ async function salvarEdicaoAluno() {
 
 async function alternarStatusAluno(aluno: Aluno) {
   if (!(await exigirAdmin())) return;
+
   const ativoAtual =
     !aluno.statusCadastro || aluno.statusCadastro === "ativo";
 
-  const novoStatus = ativoAtual ? "inativo" : "ativo";
+  const novoStatus: "ativo" | "inativo" =
+    ativoAtual ? "inativo" : "ativo";
 
   try {
     await setDoc(
@@ -1353,8 +1656,25 @@ async function alternarStatusAluno(aluno: Aluno) {
       novoStatus === "ativo" ? "Aluno ativado" : "Aluno inativado",
       aluno.nomeAluno || aluno.id
     );
+    await registrarHistoricoAluno(
+      aluno.id,
+      novoStatus === "ativo" ? "Aluno ativado" : "Aluno inativado",
+      "admin"
+    );
 
-    await buscarAlunos();
+    setAlunos((listaAtual) =>
+      listaAtual.map((item) =>
+        item.id === aluno.id
+          ? { ...item, statusCadastro: novoStatus }
+          : item
+      )
+    );
+
+    setAlunoSelecionado((atual) =>
+      atual?.id === aluno.id
+        ? { ...atual, statusCadastro: novoStatus }
+        : atual
+    );
   } catch (error: any) {
     mostrarErro(
       "Erro ao alterar status",
@@ -1366,6 +1686,7 @@ async function alternarStatusAluno(aluno: Aluno) {
 
 async function excluirAluno(aluno: Aluno) {
   if (!(await exigirAdmin())) return;
+
   confirmarAcao(
     "Excluir aluno",
     `Tem certeza que deseja excluir ${aluno.nomeAluno || "este aluno"}? Essa ação remove o cadastro do Firebase.`,
@@ -1378,12 +1699,30 @@ async function excluirAluno(aluno: Aluno) {
           aluno.nomeAluno || aluno.id
         );
 
-        if (alunoSelecionado?.id === aluno.id) setAlunoSelecionado(null);
-        if (alunoEditando?.id === aluno.id) setAlunoEditando(null);
+        setAlunos((listaAtual) =>
+          listaAtual.filter((item) => item.id !== aluno.id)
+        );
 
-        await buscarAlunos();
+        setPagamentos((listaAtual) =>
+          listaAtual.filter((item) => item.alunoId !== aluno.id)
+        );
 
-        Alert.alert("Aluno excluído", "O cadastro foi excluído.");
+        setPagamentosAno((listaAtual) =>
+          listaAtual.filter((item) => item.alunoId !== aluno.id)
+        );
+
+        if (alunoSelecionado?.id === aluno.id) {
+          setAlunoSelecionado(null);
+        }
+
+        if (alunoEditando?.id === aluno.id) {
+          setAlunoEditando(null);
+        }
+
+        Alert.alert(
+          "Aluno excluído",
+          "O cadastro foi excluído."
+        );
       } catch (error: any) {
         mostrarErro(
           "Erro ao excluir aluno",
@@ -1414,6 +1753,26 @@ async function verDetalhesAluno(aluno: Aluno) {
       .sort((a, b) => b.ano - a.ano || b.mes - a.mes);
 
     setHistoricoSelecionado(historico);
+
+    const respostaHistorico = await getDocs(
+      query(
+        collection(db, "historicoAlunos"),
+        where("alunoId", "==", aluno.id)
+      )
+    );
+
+    const alteracoes = respostaHistorico.docs
+      .map((item) => ({
+        id: item.id,
+        ...(item.data() as Omit<HistoricoAluno, "id">),
+      }))
+      .sort((a, b) => {
+        const ta = a.criadoEm?.toMillis?.() || 0;
+        const tb = b.criadoEm?.toMillis?.() || 0;
+        return tb - ta;
+      });
+
+    setHistoricoAlunoSelecionado(alteracoes);
   } catch (error: any) {
     mostrarErro(
       "Erro ao carregar histórico",
@@ -1506,9 +1865,14 @@ async function verDetalhesAluno(aluno: Aluno) {
     valor?: number,
     observacao?: string
   ) {
-  if (!(await exigirAdmin())) return;
+    if (!(await exigirAdmin())) return;
+
     try {
       const idPagamento = `${aluno.id}_${anoAtual}_${mesAtual}`;
+      const valorFinal =
+        valor ??
+        aluno.valorMensal ??
+        Number(config.valorMensalPadrao || 0);
 
       await setDoc(
         doc(db, "pagamentos", idPagamento),
@@ -1518,7 +1882,7 @@ async function verDetalhesAluno(aluno: Aluno) {
           status,
           mes: mesAtual,
           ano: anoAtual,
-          valor: valor ?? aluno.valorMensal ?? Number(config.valorMensalPadrao || 0),
+          valor: valorFinal,
           observacao: observacao || "",
           dataPagamento: status === "pago" ? serverTimestamp() : null,
           atualizadoEm: serverTimestamp(),
@@ -1531,7 +1895,35 @@ async function verDetalhesAluno(aluno: Aluno) {
         `${aluno.nomeAluno}: ${status === "pago" ? "Pago" : "Não pago"}`
       );
 
-      await buscarPagamentos();
+      const pagamentoAtualizado: Pagamento = {
+        id: idPagamento,
+        alunoId: aluno.id,
+        nomeAluno: aluno.nomeAluno || "",
+        status,
+        mes: mesAtual,
+        ano: anoAtual,
+        valor: valorFinal,
+        observacao: observacao || "",
+        dataPagamento: status === "pago" ? new Date() : null,
+      };
+
+      setPagamentos((listaAtual) => {
+        const existe = listaAtual.some((item) => item.id === idPagamento);
+        return existe
+          ? listaAtual.map((item) =>
+              item.id === idPagamento ? pagamentoAtualizado : item
+            )
+          : [...listaAtual, pagamentoAtualizado];
+      });
+
+      setPagamentosAno((listaAtual) => {
+        const existe = listaAtual.some((item) => item.id === idPagamento);
+        return existe
+          ? listaAtual.map((item) =>
+              item.id === idPagamento ? pagamentoAtualizado : item
+            )
+          : [...listaAtual, pagamentoAtualizado];
+      });
     } catch (error: any) {
       mostrarErro(
         "Erro no pagamento",
@@ -1541,13 +1933,14 @@ async function verDetalhesAluno(aluno: Aluno) {
     }
   }
 
-  async function salvarDataVencimento(
+async function salvarDataVencimento(
     aluno: Aluno,
     dataVencimento: string,
     valor?: number,
     observacao?: string
   ) {
-  if (!(await exigirAdmin())) return;
+    if (!(await exigirAdmin())) return;
+
     if (!dataVencimento.trim()) {
       Alert.alert("Atenção", "Digite a data de vencimento.");
       return;
@@ -1557,17 +1950,34 @@ async function verDetalhesAluno(aluno: Aluno) {
       const idPagamento = `${aluno.id}_${anoAtual}_${mesAtual}`;
       const existente = pagamentos.find((p) => p.alunoId === aluno.id);
 
+      const pagamentoAtualizado: Pagamento = {
+        id: idPagamento,
+        alunoId: aluno.id,
+        nomeAluno: aluno.nomeAluno || "",
+        status: existente?.status || "nao_pago",
+        mes: mesAtual,
+        ano: anoAtual,
+        dataVencimento: dataVencimento.trim(),
+        valor:
+          valor ??
+          existente?.valor ??
+          aluno.valorMensal ??
+          Number(config.valorMensalPadrao || 0),
+        observacao: observacao ?? existente?.observacao ?? "",
+        dataPagamento: existente?.dataPagamento,
+      };
+
       await setDoc(
         doc(db, "pagamentos", idPagamento),
         {
-          alunoId: aluno.id,
-          nomeAluno: aluno.nomeAluno || "",
-          status: existente?.status || "nao_pago",
-          mes: mesAtual,
-          ano: anoAtual,
-          dataVencimento: dataVencimento.trim(),
-          valor: valor ?? existente?.valor ?? aluno.valorMensal ?? Number(config.valorMensalPadrao || 0),
-          observacao: observacao ?? existente?.observacao ?? "",
+          alunoId: pagamentoAtualizado.alunoId,
+          nomeAluno: pagamentoAtualizado.nomeAluno,
+          status: pagamentoAtualizado.status,
+          mes: pagamentoAtualizado.mes,
+          ano: pagamentoAtualizado.ano,
+          dataVencimento: pagamentoAtualizado.dataVencimento,
+          valor: pagamentoAtualizado.valor,
+          observacao: pagamentoAtualizado.observacao,
           atualizadoEm: serverTimestamp(),
         },
         { merge: true }
@@ -1578,7 +1988,24 @@ async function verDetalhesAluno(aluno: Aluno) {
         `${aluno.nomeAluno}: ${dataVencimento}`
       );
 
-      await buscarPagamentos();
+      setPagamentos((listaAtual) => {
+        const existe = listaAtual.some((item) => item.id === idPagamento);
+        return existe
+          ? listaAtual.map((item) =>
+              item.id === idPagamento ? pagamentoAtualizado : item
+            )
+          : [...listaAtual, pagamentoAtualizado];
+      });
+
+      setPagamentosAno((listaAtual) => {
+        const existe = listaAtual.some((item) => item.id === idPagamento);
+        return existe
+          ? listaAtual.map((item) =>
+              item.id === idPagamento ? pagamentoAtualizado : item
+            )
+          : [...listaAtual, pagamentoAtualizado];
+      });
+
       Alert.alert("Salvo", "Dados financeiros atualizados.");
     } catch (error: any) {
       mostrarErro(
@@ -1589,8 +2016,10 @@ async function verDetalhesAluno(aluno: Aluno) {
     }
   }
 
-
   // =====================================================
+  // VAN
+
+// =====================================================
   // VAN
   // =====================================================
 
@@ -1676,7 +2105,8 @@ async function verDetalhesAluno(aluno: Aluno) {
   }
 
   async function criarAviso() {
-  if (!(await exigirAdmin())) return;
+    if (!(await exigirAdmin())) return;
+
     if (!tituloAviso.trim()) {
       Alert.alert(
         "Título obrigatório",
@@ -1694,21 +2124,32 @@ async function verDetalhesAluno(aluno: Aluno) {
     }
 
     try {
-      await addDoc(collection(db, "avisos"), {
-        titulo: tituloAviso.trim(),
-        mensagem: mensagemAviso.trim(),
+      const tituloNovo = tituloAviso.trim();
+      const mensagemNova = mensagemAviso.trim();
+
+      const documento = await addDoc(collection(db, "avisos"), {
+        titulo: tituloNovo,
+        mensagem: mensagemNova,
         criadoEm: serverTimestamp(),
       });
 
       await registrarLog(
         "Aviso criado",
-        tituloAviso.trim()
+        tituloNovo
       );
+
+      setAvisos((listaAtual) => [
+        {
+          id: documento.id,
+          titulo: tituloNovo,
+          mensagem: mensagemNova,
+          criadoEm: new Date(),
+        },
+        ...listaAtual,
+      ]);
 
       setTituloAviso("");
       setMensagemAviso("");
-
-      await buscarAvisos();
 
       Alert.alert(
         "Aviso publicado",
@@ -1724,6 +2165,9 @@ async function verDetalhesAluno(aluno: Aluno) {
   }
 
   // =====================================================
+  // CONFIGURAÇÕES
+
+// =====================================================
   // CONFIGURAÇÕES
   // =====================================================
 
@@ -1743,9 +2187,14 @@ async function verDetalhesAluno(aluno: Aluno) {
             aviso.titulo || aviso.id
           );
 
-          await buscarAvisos();
+          setAvisos((listaAtual) =>
+            listaAtual.filter((item) => item.id !== aviso.id)
+          );
 
-          Alert.alert("Aviso excluído", "O aviso foi excluído com sucesso.");
+          Alert.alert(
+            "Aviso excluído",
+            "O aviso foi excluído com sucesso."
+          );
         } catch (error: any) {
           mostrarErro(
             "Erro ao excluir aviso",
@@ -1757,7 +2206,7 @@ async function verDetalhesAluno(aluno: Aluno) {
     );
   }
 
-  async function buscarConfiguracoes() {
+async function buscarConfiguracoes() {
     try {
       const snap = await getDoc(
         doc(db, "configuracoes", "geral")
@@ -1954,6 +2403,35 @@ async function verDetalhesAluno(aluno: Aluno) {
   }
 
 
+async function buscarAceitesTermos() {
+  try {
+    setCarregandoAceites(true);
+
+    const resposta = await getDocs(collection(db, "aceitesTermos"));
+
+    const lista: AceiteTermos[] = resposta.docs
+      .map((item) => ({
+        id: item.id,
+        ...(item.data() as Omit<AceiteTermos, "id">),
+      }))
+      .sort((a, b) => {
+        const ta = a.termosAceitosEm?.toMillis?.() || 0;
+        const tb = b.termosAceitosEm?.toMillis?.() || 0;
+        return tb - ta;
+      });
+
+    setAceitesTermos(lista);
+  } catch (error: any) {
+    mostrarErro(
+      "Erro ao carregar aceites",
+      error,
+      "Não foi possível carregar o registro dos Termos de Uso."
+    );
+  } finally {
+    setCarregandoAceites(false);
+  }
+}
+
 async function buscarLogs() {
   try {
     setCarregandoLogs(true);
@@ -2012,7 +2490,7 @@ function exportarBackupCompleto() {
   const a = g.document.createElement("a");
 
   a.href = url;
-  a.download = `backup-angel-transportes-${new Date()
+  a.download = `backup-angel-transports-${new Date()
     .toISOString()
     .slice(0, 10)}.json`;
   a.click();
@@ -2052,7 +2530,7 @@ function exportarBackupCompleto() {
   }
 
   function exportarAlunos() {
-    baixarCSV("alunos-angel-transportes.csv", [
+    baixarCSV("alunos-angel-transports.csv", [
       ["Nome", "Responsável", "Telefone", "Bairro", "Escola", "Turno", "E-mail"],
       ...alunosAtivos.map((a) => [
         a.nomeAluno || "",
@@ -2147,7 +2625,63 @@ function exportarBackupCompleto() {
   }, [tela]);
 
   useEffect(() => {
-    if (tela === "perfil") {
+    if (tela !== "perfil" && tela !== "menu") return;
+
+    const usuario = auth.currentUser;
+    if (!usuario) return;
+
+    const consulta = query(
+      collection(db, "alunos"),
+      where("usuarioUid", "==", usuario.uid)
+    );
+
+    const parar = onSnapshot(
+      consulta,
+      (resposta) => {
+        setMeusAlunos(
+          resposta.docs.map((item) => ({
+            id: item.id,
+            ...(item.data() as Omit<Aluno, "id">),
+          }))
+        );
+        setCarregandoPerfil(false);
+      },
+      (error) => console.log("Erro na sincronização do perfil:", error)
+    );
+
+    return () => parar();
+  }, [tela]);
+
+  useEffect(() => {
+    if (tela !== "admin") return;
+
+    let parar: (() => void) | undefined;
+
+    usuarioEhAdmin().then((permitido) => {
+      if (!permitido) return;
+
+      parar = onSnapshot(
+        collection(db, "alunos"),
+        (resposta) => {
+          setAlunos(
+            resposta.docs.map((item) => ({
+              id: item.id,
+              ...(item.data() as Omit<Aluno, "id">),
+            }))
+          );
+          setCarregandoAlunos(false);
+        },
+        (error) => console.log("Erro na sincronização dos alunos:", error)
+      );
+    });
+
+    return () => {
+      if (parar) parar();
+    };
+  }, [tela]);
+
+  useEffect(() => {
+    if (tela === "perfil" || tela === "menu") {
       buscarMeusAlunos();
       buscarAvisos();
     }
@@ -2172,6 +2706,7 @@ function exportarBackupCompleto() {
         buscarAvisos();
         buscarVan();
         buscarLogs();
+        buscarAceitesTermos();
         buscarPagamentosAno();
       });
     }
@@ -2198,6 +2733,18 @@ function exportarBackupCompleto() {
   useEffect(() => {
     if (tela === "admin" && rotaAdmin === "dashboard") {
       buscarPagamentosAno();
+    }
+  }, [tela, rotaAdmin, anoAtual]);
+
+  useEffect(() => {
+    if (tela === "admin" && rotaAdmin === "dashboard") {
+      graficoAnim.setValue(0);
+      Animated.timing(graficoAnim, {
+        toValue: 1,
+        duration: 850,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
     }
   }, [tela, rotaAdmin, anoAtual]);
 
@@ -2234,13 +2781,7 @@ function exportarBackupCompleto() {
   );
 
   const alunosGerenciaveis = useMemo(
-    () =>
-      alunos.filter(
-        (aluno) =>
-          !aluno.statusCadastro ||
-          aluno.statusCadastro === "ativo" ||
-          aluno.statusCadastro === "inativo"
-      ),
+    () => alunos,
     [alunos]
   );
 
@@ -2261,7 +2802,9 @@ function exportarBackupCompleto() {
       const textoBusca =
         `${aluno.nomeAluno || ""} ${aluno.nomeResponsavel || ""} ${
           aluno.escola || ""
-        } ${aluno.bairro || ""}`.toLowerCase();
+        } ${aluno.bairro || ""} ${aluno.telefone || ""} ${
+          aluno.usuarioEmail || ""
+        }`.toLowerCase();
 
       if (busca && !textoBusca.includes(busca)) return false;
       if (escola && !(aluno.escola || "").toLowerCase().includes(escola)) return false;
@@ -2284,6 +2827,24 @@ function exportarBackupCompleto() {
     filtroBairro,
     filtroTurno,
   ]);
+
+  const resultadosBuscaGlobal = useMemo(() => {
+    const busca = buscaGlobalAdmin.trim().toLowerCase();
+
+    if (!busca) return [];
+
+    return alunos
+      .filter((aluno) => {
+        const conteudo = `${aluno.nomeAluno || ""} ${aluno.nomeResponsavel || ""} ${
+          aluno.telefone || ""
+        } ${aluno.usuarioEmail || ""} ${aluno.escola || ""} ${
+          aluno.bairro || ""
+        }`.toLowerCase();
+
+        return conteudo.includes(busca);
+      })
+      .slice(0, 6);
+  }, [alunos, buscaGlobalAdmin]);
 
   const totalPago = pagamentos.filter(
     (pagamento) =>
@@ -2376,6 +2937,19 @@ function exportarBackupCompleto() {
     return p?.status !== "pago" && estaVencendoEmSeteDias(p?.dataVencimento);
   });
 
+  const notificacoesAdmin =
+    solicitacoesPendentes.length +
+    totalAtrasados +
+    vencendo;
+
+  const notificacoesResponsavel =
+    (avisos.length > 0 ? 1 : 0) +
+    (pagamentosPerfil.some(
+      (p) => p.mes === mesAtual && p.ano === anoAtual && p.status === "pago"
+    )
+      ? 0
+      : 1);
+
   // =====================================================
   // CENTRAL DE AJUDA
   // =====================================================
@@ -2411,10 +2985,120 @@ function exportarBackupCompleto() {
             Na tela de entrada, digite seu e-mail e toque em “Esqueci minha senha”.
           </Text>
 
-          <Text style={styles.secaoTitulo}>Preciso falar com a Angel Transportes</Text>
+          <Text style={styles.secaoTitulo}>Preciso falar com a Angel Transports</Text>
           <Text style={styles.descricao}>
             Use o botão de ligação na página “Informações do transporte”.
           </Text>
+        </View>
+      </ScrollView>
+    );
+  }
+
+  // =====================================================
+  // NOVA VERSÃO DOS TERMOS
+  // =====================================================
+
+  if (tela === "termosPendentes") {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.page}>
+        <HeaderPagina
+          titulo="Atualização dos Termos"
+          subtitulo={`Para continuar, leia e aceite a versão ${TERMOS_VERSAO} dos Termos de Uso e Privacidade.`}
+          voltar={() => sair()}
+        />
+
+        <View style={styles.card}>
+          <Text style={styles.secaoTituloSemMargem}>
+            Termos de Uso e Privacidade
+          </Text>
+
+          <Text style={styles.descricao}>
+            Atualizamos os termos do sistema. Seu acesso continua protegido e
+            você precisa registrar o aceite desta nova versão para continuar.
+          </Text>
+
+          <TouchableOpacity
+            style={styles.termosLinha}
+            onPress={() => setAceiteNovaVersao((valor) => !valor)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: aceiteNovaVersao }}
+            accessibilityLabel={`Aceitar versão ${TERMOS_VERSAO} dos Termos de Uso`}
+          >
+            <View
+              style={[
+                styles.checkboxTermos,
+                aceiteNovaVersao && styles.checkboxTermosAtivo,
+              ]}
+            >
+              {aceiteNovaVersao && (
+                <Text style={styles.checkboxTermosCheck}>✓</Text>
+              )}
+            </View>
+
+            <Text style={styles.termosTexto}>
+              Li e aceito a versão {TERMOS_VERSAO} dos Termos de Uso e da
+              Política de Privacidade.
+            </Text>
+          </TouchableOpacity>
+
+          <BotaoAnimado
+            texto="Ler os termos completos"
+            secundario
+            onPress={() => setTela("privacidade")}
+          />
+
+          <BotaoAnimado
+            texto="Aceitar e continuar"
+            onPress={async () => {
+              if (!aceiteNovaVersao) {
+                Alert.alert(
+                  "Aceite necessário",
+                  "Marque o quadradinho para aceitar os termos."
+                );
+                return;
+              }
+
+              const usuario = auth.currentUser;
+
+              if (!usuario) {
+                setTela("inicio");
+                return;
+              }
+
+              try {
+                await setDoc(
+                  doc(db, "users", usuario.uid),
+                  {
+                    termosAceitos: true,
+                    termosVersao: TERMOS_VERSAO,
+                    termosAceitosEm: serverTimestamp(),
+                  },
+                  { merge: true }
+                );
+
+                await setDoc(
+                  doc(db, "aceitesTermos", `${usuario.uid}_${TERMOS_VERSAO}`),
+                  {
+                    userId: usuario.uid,
+                    name: usuario.displayName || "",
+                    email: usuario.email || "",
+                    termosVersao: TERMOS_VERSAO,
+                    termosAceitosEm: serverTimestamp(),
+                  }
+                );
+
+                setAceiteNovaVersao(false);
+                mostrarSucessoNaTela("Nova versão dos termos aceita com sucesso.");
+                setTela("menu");
+              } catch (error: any) {
+                mostrarErro(
+                  "Erro ao registrar aceite",
+                  error,
+                  "Não foi possível registrar o aceite."
+                );
+              }
+            }}
+          />
         </View>
       </ScrollView>
     );
@@ -2428,13 +3112,26 @@ function exportarBackupCompleto() {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.page}>
         <HeaderPagina
-          titulo="Privacidade e termos"
-          subtitulo="Informações sobre o uso dos dados no sistema."
+          titulo="Termos de Uso e Privacidade"
+          subtitulo="Regras de uso do sistema e informações sobre tratamento de dados."
           voltar={() => setTela("inicio")}
         />
 
         <View style={styles.card}>
-          <Text style={styles.secaoTituloSemMargem}>Dados utilizados</Text>
+          <Text style={styles.secaoTituloSemMargem}>Termos de Uso</Text>
+          <Text style={styles.descricao}>
+            Ao criar uma conta, o responsável declara que as informações cadastradas
+            são verdadeiras e que utilizará o sistema apenas para acompanhar e gerenciar
+            os próprios cadastros vinculados ao transporte escolar.
+          </Text>
+
+          <Text style={styles.secaoTitulo}>Responsabilidade da conta</Text>
+          <Text style={styles.descricao}>
+            O usuário é responsável por manter sua senha em segurança e por não compartilhar
+            o acesso da conta com terceiros.
+          </Text>
+
+          <Text style={styles.secaoTitulo}>Dados utilizados</Text>
           <Text style={styles.descricao}>
             O sistema utiliza dados necessários para organizar o transporte escolar,
             como nome da criança, responsável, telefone, escola, bairro, turno,
@@ -2460,7 +3157,7 @@ function exportarBackupCompleto() {
 
           <Text style={styles.secaoTitulo}>Contato</Text>
           <Text style={styles.descricao}>
-            Para dúvidas sobre seus dados, entre em contato diretamente com a Angel Transportes.
+            Para dúvidas sobre seus dados, entre em contato diretamente com a Angel Transports.
           </Text>
         </View>
       </ScrollView>
@@ -2475,7 +3172,7 @@ function exportarBackupCompleto() {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.page}>
         <HeaderPagina
-          titulo="Conheça a Angel Transportes"
+          titulo="Conheça a Angel Transports"
           subtitulo="Informações atualizadas diretamente pelo nosso painel administrativo."
           voltar={() => setTela("inicio")}
         />
@@ -2549,7 +3246,7 @@ function exportarBackupCompleto() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.secaoTituloSemMargem}>Fale com a Angel Transportes</Text>
+          <Text style={styles.secaoTituloSemMargem}>Fale com a Angel Transports</Text>
           <Text style={styles.descricao}>
             Quer saber sobre disponibilidade, bairros atendidos ou valores? Entre em contato.
           </Text>
@@ -2596,7 +3293,7 @@ function exportarBackupCompleto() {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.hero}>
+          <View style={[styles.hero, mobile && styles.heroMobile]}>
             <Animated.View
               style={[
                 styles.bolhaGrande,
@@ -2624,6 +3321,7 @@ function exportarBackupCompleto() {
             <Animated.View
               style={[
                 styles.logoImagemContainer,
+                mobile && styles.logoImagemContainerMobile,
                 {
                   transform: [{ translateY: logoAnim }],
                 },
@@ -2636,9 +3334,11 @@ function exportarBackupCompleto() {
               />
             </Animated.View>
 
-            <Text style={styles.title}>Angel Transportes</Text>
+            <Text style={[styles.title, mobile && styles.titleMobile]}>
+              Angel Transports
+            </Text>
 
-            <Text style={styles.subtitle}>
+            <Text style={[styles.subtitle, mobile && styles.subtitleMobile]}>
               Transporte escolar com segurança, organização e transparência
             </Text>
           </View>
@@ -2646,16 +3346,17 @@ function exportarBackupCompleto() {
           <Animated.View
             style={[
               styles.main,
+              mobile && styles.mainMobile,
               {
                 opacity: fadeAnim,
                 transform: [{ translateY: slideAnim }],
               },
             ]}
           >
-            <View style={styles.card}>
+            <View style={[styles.card, mobile && styles.cardMobile]}>
               <Text style={styles.tag}>ACESSO AO SISTEMA</Text>
 
-              <Text style={styles.cardTitle}>
+              <Text style={[styles.cardTitle, mobile && styles.cardTitleMobile]}>
                 {modo === "login" ? "Bem-vindo" : "Criar conta"}
               </Text>
 
@@ -2666,11 +3367,11 @@ function exportarBackupCompleto() {
               </Text>
 
               <View
-  style={{
-    width: "100%",
-    transform: [{ translateY: -25 }],
-  }}
->
+                style={[
+                  styles.infoTransporteWrapper,
+                  mobile && styles.infoTransporteWrapperMobile,
+                ]}
+              >
   <BotaoAnimado
     texto="Informações do transporte"
     secundario
@@ -2685,6 +3386,7 @@ function exportarBackupCompleto() {
     onPress={() => {
       setModo("login");
       setErroLogin("");
+      setAceitouTermos(false);
     }}
   >
     <Text
@@ -2769,6 +3471,44 @@ function exportarBackupCompleto() {
                 </View>
               )}
 
+              {modo === "criar" && (
+                <View style={styles.termosContainer}>
+                  <TouchableOpacity
+                    style={styles.termosLinha}
+                    activeOpacity={0.8}
+                    onPress={() => setAceitouTermos((valor) => !valor)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: aceitouTermos }}
+                    accessibilityLabel="Aceitar Termos de Uso e Política de Privacidade"
+                  >
+                    <View
+                      style={[
+                        styles.checkboxTermos,
+                        aceitouTermos && styles.checkboxTermosAtivo,
+                      ]}
+                    >
+                      {aceitouTermos && (
+                        <Text style={styles.checkboxTermosCheck}>✓</Text>
+                      )}
+                    </View>
+
+                    <Text style={styles.termosTexto}>
+                      Li e aceito os{" "}
+                      <Text
+                        style={styles.termosLink}
+                        onPress={(evento: any) => {
+                          evento?.stopPropagation?.();
+                          setTela("privacidade");
+                        }}
+                      >
+                        Termos de Uso e a Política de Privacidade
+                      </Text>
+                      .
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               <BotaoAnimado
                 texto={
                   modo === "login" ? "Entrar no sistema" : "Criar minha conta"
@@ -2789,7 +3529,7 @@ function exportarBackupCompleto() {
               <View style={styles.rodapeCompleto}>
                 <View style={styles.rodapeDivisor} />
 
-                <Text style={styles.rodapeMarca}>Angel Transportes</Text>
+                <Text style={styles.rodapeMarca}>Angel Transports</Text>
                 <Text style={styles.rodapeDescricao}>
                   Transporte escolar com segurança, organização e transparência.
                 </Text>
@@ -2815,7 +3555,7 @@ function exportarBackupCompleto() {
                 </View>
 
                 <Text style={styles.rodapeCopyright}>
-                  © 2026 Angel Transportes. Todos os direitos reservados.
+                  © 2026 Angel Transports. Todos os direitos reservados.
                 </Text>
               </View>
             </View>
@@ -2830,53 +3570,170 @@ function exportarBackupCompleto() {
   // =====================================================
 
   if (tela === "menu") {
+    const alunoPrincipal = meusAlunos[0];
+
+    const pagamentoPrincipal = alunoPrincipal
+      ? pagamentosPerfil.find(
+          (p) =>
+            p.alunoId === alunoPrincipal.id &&
+            p.mes === mesAtual &&
+            p.ano === anoAtual
+        )
+      : undefined;
+
+    const ultimoAviso = avisos[0];
+
     return (
-      <View style={styles.center}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.centralResponsavelPage}
+      >
         <Animated.View
           style={[
-            styles.cardGrande,
+            styles.centralResponsavelHero,
             {
               opacity: fadeAnim,
               transform: [{ translateY: slideAnim }],
             },
           ]}
         >
-          <LogoMenu logoAnim={logoAnim} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.tag}>ANGEL TRANSPORTS</Text>
+            <Text style={styles.centralResponsavelTitulo}>Área do responsável</Text>
+            <Text style={styles.centralResponsavelSub}>
+              Um resumo rápido do transporte da sua família.
+            </Text>
+          </View>
 
-          <Text style={styles.tag}>ANGEL TRANSPORTS</Text>
-          <Text style={styles.cardTitle}>Área do responsável</Text>
-          <Text style={styles.descricao}>
-            Cadastre crianças, acompanhe seus dados e veja avisos importantes.
-          </Text>
+          <View style={styles.notificacaoTopo}>
+            <Text style={styles.notificacaoSino}>!</Text>
 
-          <BotaoAnimado
-            texto="Cadastrar criança"
-            onPress={() => setTela("cadastro")}
+            {notificacoesResponsavel > 0 && (
+              <View style={styles.notificacaoBadge}>
+                <Text style={styles.notificacaoBadgeTexto}>
+                  {notificacoesResponsavel}
+                </Text>
+              </View>
+            )}
+          </View>
+        </Animated.View>
+
+        <OfflineBanner online={firebaseOnline} />
+        <SessaoBadge tipo="Responsável" email={auth.currentUser?.email || ""} />
+
+        {alunoPrincipal ? (
+          <CardAnimado>
+            <View style={styles.centralCarteirinha}>
+              <View style={styles.centralAvatar}>
+                <Text style={styles.centralAvatarTexto}>
+                  {alunoPrincipal.nomeAluno?.charAt(0).toUpperCase() || "A"}
+                </Text>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={styles.centralAlunoNome}>
+                  {alunoPrincipal.nomeAluno || "Aluno"}
+                </Text>
+
+                <Text style={styles.centralAlunoMeta}>
+                  {alunoPrincipal.escola || "Escola não informada"} •{" "}
+                  {alunoPrincipal.turno || "Turno não informado"}
+                </Text>
+              </View>
+
+              <StatusChip
+                texto={
+                  alunoPrincipal.statusCadastro === "pendente"
+                    ? "Pendente"
+                    : alunoPrincipal.statusCadastro === "inativo"
+                    ? "Inativo"
+                    : "Ativo"
+                }
+                tipo={
+                  alunoPrincipal.statusCadastro === "pendente"
+                    ? "alerta"
+                    : alunoPrincipal.statusCadastro === "inativo"
+                    ? "erro"
+                    : "sucesso"
+                }
+              />
+            </View>
+          </CardAnimado>
+        ) : (
+          <CardAnimado>
+            <Vazio texto="Nenhuma criança cadastrada ainda." />
+          </CardAnimado>
+        )}
+
+        <View style={styles.centralResumoGrid}>
+          <CentralResumo
+            titulo="Pagamento"
+            valor={pagamentoPrincipal?.status === "pago" ? "Pago" : "Pendente"}
+            tipo={pagamentoPrincipal?.status === "pago" ? "sucesso" : "alerta"}
           />
 
-          <BotaoAnimado
-            texto="Ver meu perfil"
-            secundario
+          <CentralResumo
+            titulo="Avisos"
+            valor={String(avisos.length)}
+            tipo={avisos.length > 0 ? "alerta" : "sucesso"}
+          />
+
+          <CentralResumo
+            titulo="Crianças"
+            valor={String(meusAlunos.length)}
+            tipo="neutro"
+          />
+        </View>
+
+        {ultimoAviso && (
+          <CardAnimado delay={80}>
+            <View style={styles.centralAvisoTopo}>
+              <Text style={styles.secaoTituloSemMargem}>Último aviso</Text>
+              <StatusChip texto="Novo" tipo="alerta" />
+            </View>
+
+            <Text style={styles.centralAvisoTitulo}>{ultimoAviso.titulo}</Text>
+            <Text style={styles.descricao}>{ultimoAviso.mensagem}</Text>
+
+            <TouchableOpacity
+              style={styles.centralLink}
+              onPress={() => setTela("avisosUsuario")}
+            >
+              <Text style={styles.centralLinkTexto}>Ver todos os avisos →</Text>
+            </TouchableOpacity>
+          </CardAnimado>
+        )}
+
+        <View style={styles.centralAcoesGrid}>
+          <CentralAcao
+            titulo="Meu perfil"
+            descricao="Dados, pagamentos e edição"
             onPress={() => setTela("perfil")}
           />
 
-          <BotaoAnimado
-            texto="Ver avisos"
-            secundario
+          <CentralAcao
+            titulo="Cadastrar criança"
+            descricao="Enviar um novo cadastro"
+            onPress={() => setTela("cadastro")}
+          />
+
+          <CentralAcao
+            titulo="Avisos"
+            descricao="Comunicados do transporte"
             onPress={() => setTela("avisosUsuario")}
           />
 
-          <BotaoAnimado
-            texto="Central de ajuda"
-            secundario
+          <CentralAcao
+            titulo="Ajuda"
+            descricao="Dúvidas e orientações"
             onPress={() => setTela("ajuda")}
           />
+        </View>
 
-          <TouchableOpacity style={styles.linkButton} onPress={sair}>
-            <Text style={styles.linkText}>Sair da conta</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
+        <TouchableOpacity style={styles.linkButton} onPress={sair}>
+          <Text style={styles.linkText}>Sair da conta</Text>
+        </TouchableOpacity>
+      </ScrollView>
     );
   }
 
@@ -2886,15 +3743,27 @@ function exportarBackupCompleto() {
 
   if (tela === "perfil") {
     return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.page}>
+      <Animated.ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.page}
+        scrollEventThrottle={16}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: headerScroll } } }],
+          { useNativeDriver: false }
+        )}
+      >
         <HeaderPagina
           titulo="Meu perfil"
           subtitulo="Veja seus alunos, situação de cadastro, pagamentos e segurança da conta."
           voltar={() => setTela("menu")}
+          scrollY={headerScroll}
         />
 
+        <SessaoBadge tipo="Responsável" email={auth.currentUser?.email || ""} />
+        <FeedbackBanner mensagem={mensagemSistema} />
+
         {carregandoPerfil ? (
-          <ActivityIndicator size="large" color={VINHO} />
+          <SkeletonCard />
         ) : meusAlunos.length === 0 ? (
           <Vazio texto="Nenhuma criança cadastrada." />
         ) : (
@@ -2910,6 +3779,24 @@ function exportarBackupCompleto() {
             return (
               <CardAnimado key={aluno.id} delay={index * 80}>
                 <AlunoCard aluno={aluno} />
+
+                <TouchableOpacity
+                  style={styles.botaoEditarResponsavel}
+                  onPress={() => setAlunoResponsavelEditando({ ...aluno })}
+                >
+                  <Text style={styles.botaoEditarResponsavelTexto}>
+                    Editar dados da criança
+                  </Text>
+                </TouchableOpacity>
+
+                {!!aluno.observacoesResponsavel && (
+                  <View style={styles.observacaoResponsavelBox}>
+                    <Text style={styles.miniTitulo}>Suas observações</Text>
+                    <Text style={styles.textoSecundario}>
+                      {aluno.observacoesResponsavel}
+                    </Text>
+                  </View>
+                )}
 
                 <View style={styles.perfilFinanceiro}>
                   <Text style={styles.miniTitulo}>Situação deste mês</Text>
@@ -2967,6 +3854,145 @@ function exportarBackupCompleto() {
           })
         )}
 
+        {alunoResponsavelEditando && (
+          <View style={styles.card}>
+            <View style={styles.edicaoResponsavelCabecalho}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.secaoTituloSemMargem}>Editar criança</Text>
+                <Text style={styles.textoSecundario}>
+                  Você pode alterar os dados do seu próprio cadastro.
+                </Text>
+              </View>
+
+              <TouchableOpacity onPress={() => setAlunoResponsavelEditando(null)}>
+                <Text style={styles.fecharEdicaoResponsavel}>×</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Campo
+              label="Nome da criança"
+              value={alunoResponsavelEditando.nomeAluno || ""}
+              onChange={(v) =>
+                setAlunoResponsavelEditando({ ...alunoResponsavelEditando, nomeAluno: v })
+              }
+            />
+
+            <Campo
+              label="Nome do responsável"
+              value={alunoResponsavelEditando.nomeResponsavel || ""}
+              onChange={(v) =>
+                setAlunoResponsavelEditando({ ...alunoResponsavelEditando, nomeResponsavel: v })
+              }
+            />
+
+            <Campo
+              label="Telefone"
+              value={alunoResponsavelEditando.telefone || ""}
+              onChange={(v) =>
+                setAlunoResponsavelEditando({ ...alunoResponsavelEditando, telefone: v })
+              }
+            />
+
+            <Campo
+              label="Bairro"
+              value={alunoResponsavelEditando.bairro || ""}
+              onChange={(v) =>
+                setAlunoResponsavelEditando({ ...alunoResponsavelEditando, bairro: v })
+              }
+            />
+
+            <Campo
+              label="Escola"
+              value={alunoResponsavelEditando.escola || ""}
+              onChange={(v) =>
+                setAlunoResponsavelEditando({ ...alunoResponsavelEditando, escola: v })
+              }
+            />
+
+            <Campo
+              label="Turno"
+              value={alunoResponsavelEditando.turno || ""}
+              onChange={(v) =>
+                setAlunoResponsavelEditando({ ...alunoResponsavelEditando, turno: v })
+              }
+            />
+
+            <Text style={styles.label}>Tipo de transporte</Text>
+            <View style={styles.opcoesTransporte}>
+              {[
+                ["ida", "Somente ida"],
+                ["volta", "Somente volta"],
+                ["ida_volta", "Ida e volta"],
+              ].map(([valorOpcao, textoOpcao]) => (
+                <TouchableOpacity
+                  key={valorOpcao}
+                  style={[
+                    styles.opcaoTransporte,
+                    alunoResponsavelEditando.tipoTransporte === valorOpcao &&
+                      styles.opcaoTransporteAtiva,
+                  ]}
+                  onPress={() =>
+                    setAlunoResponsavelEditando({
+                      ...alunoResponsavelEditando,
+                      tipoTransporte: valorOpcao as "ida" | "volta" | "ida_volta",
+                    })
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.opcaoTransporteTexto,
+                      alunoResponsavelEditando.tipoTransporte === valorOpcao &&
+                        styles.opcaoTransporteTextoAtivo,
+                    ]}
+                  >
+                    {textoOpcao}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Campo
+              label="Contato de emergência"
+              value={alunoResponsavelEditando.contatoEmergencia || ""}
+              onChange={(v) =>
+                setAlunoResponsavelEditando({
+                  ...alunoResponsavelEditando,
+                  contatoEmergencia: v,
+                })
+              }
+            />
+
+            <Text style={styles.label}>Observações sobre a criança</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              value={alunoResponsavelEditando.observacoesResponsavel || ""}
+              onChangeText={(v) =>
+                setAlunoResponsavelEditando({
+                  ...alunoResponsavelEditando,
+                  observacoesResponsavel: v,
+                })
+              }
+              placeholder="Informações importantes para o transporte."
+              placeholderTextColor="#9B8D92"
+              multiline
+              numberOfLines={4}
+            />
+
+            <BotaoAnimado
+              texto="Salvar alterações"
+              carregando={salvando}
+              onPress={salvarEdicaoResponsavel}
+            />
+
+            <TouchableOpacity
+              style={styles.botaoCancelarEdicao}
+              onPress={() => setAlunoResponsavelEditando(null)}
+            >
+              <Text style={styles.botaoCancelarEdicaoTexto}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.card}>
           <Text style={styles.secaoTituloSemMargem}>Segurança da conta</Text>
 
@@ -2992,7 +4018,7 @@ function exportarBackupCompleto() {
         {avisos.slice(0, 3).map((aviso) => (
           <AvisoCard key={aviso.id} aviso={aviso} />
         ))}
-      </ScrollView>
+      </Animated.ScrollView>
     );
   }
 
@@ -3005,7 +4031,7 @@ function exportarBackupCompleto() {
       <ScrollView style={styles.container} contentContainerStyle={styles.page}>
         <HeaderPagina
           titulo="Avisos"
-          subtitulo="Comunicados da Angel Transportes."
+          subtitulo="Comunicados da Angel Transports."
           voltar={() => setTela("menu")}
         />
 
@@ -3123,17 +4149,21 @@ function exportarBackupCompleto() {
           </View>
 
           <Campo
-            label="Horário de embarque"
-            value={horarioEmbarque}
-            onChange={setHorarioEmbarque}
-            placeholder="Ex: 12:40"
-          />
-
-          <Campo
             label="Contato de emergência"
             value={contatoEmergencia}
             onChange={setContatoEmergencia}
             placeholder="Telefone com DDD"
+          />
+
+          <Text style={styles.label}>Observações sobre a criança</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            value={observacoesResponsavel}
+            onChangeText={setObservacoesResponsavel}
+            placeholder="Ex: informações importantes para o transporte, pessoas autorizadas ou outros cuidados."
+            placeholderTextColor="#9B8D92"
+            multiline
+            numberOfLines={4}
           />
 
           <BotaoAnimado
@@ -3162,9 +4192,7 @@ function exportarBackupCompleto() {
             },
           ]}
         >
-          <View style={styles.checkCircle}>
-            <Text style={styles.check}>✓</Text>
-          </View>
+          <SuccessCheck />
 
           <Text style={styles.sucessoTitle}>Cadastro enviado!</Text>
 
@@ -3204,10 +4232,14 @@ function exportarBackupCompleto() {
   // =====================================================
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.adminPage}
-    >
+    <View style={styles.container}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[
+          styles.adminPage,
+          mobile && styles.adminPageMobileComNav,
+        ]}
+      >
       <Animated.View
         style={[
           styles.adminTop,
@@ -3219,7 +4251,7 @@ function exportarBackupCompleto() {
       >
         <View>
           <Text style={styles.tag}>ADMINISTRADOR</Text>
-          <Text style={styles.adminTitle}>Angel Transportes</Text>
+          <Text style={styles.adminTitle}>Angel Transports</Text>
           <Text style={styles.adminSub}>
             Gestão completa do transporte escolar
           </Text>
@@ -3229,6 +4261,83 @@ function exportarBackupCompleto() {
           <Text style={styles.sairButtonText}>Sair</Text>
         </TouchableOpacity>
       </Animated.View>
+
+      <OfflineBanner online={firebaseOnline} />
+
+      <View style={styles.adminUtilidades}>
+        <View style={{ flex: 1 }}>
+          <SessaoBadge tipo="Administrador" email={auth.currentUser?.email || ""} />
+        </View>
+
+        <TouchableOpacity
+          style={styles.notificacaoTopo}
+          onPress={() => setRotaAdmin("dashboard")}
+          accessibilityLabel={`${notificacoesAdmin} notificações administrativas`}
+        >
+          <Text style={styles.notificacaoSino}>!</Text>
+
+          {notificacoesAdmin > 0 && (
+            <View style={styles.notificacaoBadge}>
+              <Text style={styles.notificacaoBadgeTexto}>
+                {Math.min(notificacoesAdmin, 99)}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      <FeedbackBanner mensagem={mensagemSistema} />
+
+      <View style={styles.buscaGlobalBox}>
+        <TextInput
+          style={styles.buscaGlobalInput}
+          value={buscaGlobalAdmin}
+          onChangeText={setBuscaGlobalAdmin}
+          placeholder="Busca rápida: aluno, responsável, telefone, e-mail..."
+          placeholderTextColor="#9C8F92"
+          accessibilityLabel="Busca global do administrador"
+        />
+
+        {!!buscaGlobalAdmin.trim() && (
+          <View style={styles.buscaGlobalResultados}>
+            {resultadosBuscaGlobal.length === 0 ? (
+              <Text style={styles.textoSecundario}>
+                Nenhum resultado encontrado.
+              </Text>
+            ) : (
+              resultadosBuscaGlobal.map((aluno) => (
+                <TouchableOpacity
+                  key={aluno.id}
+                  style={styles.buscaGlobalItem}
+                  onPress={() => {
+                    setBuscaGlobalAdmin("");
+                    setRotaAdmin("alunos");
+                    setBuscaAluno(aluno.nomeAluno || "");
+                    verDetalhesAluno(aluno);
+                  }}
+                >
+                  <View style={styles.buscaGlobalAvatar}>
+                    <Text style={styles.buscaGlobalAvatarTexto}>
+                      {aluno.nomeAluno?.charAt(0).toUpperCase() || "A"}
+                    </Text>
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.buscaGlobalNome}>
+                      {aluno.nomeAluno || "Aluno"}
+                    </Text>
+
+                    <Text style={styles.buscaGlobalMeta}>
+                      {aluno.nomeResponsavel || "Responsável"} •{" "}
+                      {aluno.escola || "Sem escola"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        )}
+      </View>
 
       <ScrollView
         horizontal
@@ -3348,6 +4457,92 @@ function exportarBackupCompleto() {
           </View>
 
           <View style={styles.card}>
+            <Text style={styles.secaoTituloSemMargem}>Atenção agora</Text>
+            <Text style={styles.textoSecundario}>
+              Atalhos para o que precisa de ação primeiro.
+            </Text>
+
+            <View style={styles.acoesInteligentesGrid}>
+              <AcaoInteligente
+                titulo="Solicitações"
+                numero={solicitacoesPendentes.length}
+                descricao="aguardando aprovação"
+                tipo={solicitacoesPendentes.length > 0 ? "alerta" : "sucesso"}
+                onPress={() => setRotaAdmin("solicitacoes")}
+              />
+
+              <AcaoInteligente
+                titulo="Atrasados"
+                numero={totalAtrasados}
+                descricao="pagamentos vencidos"
+                tipo={totalAtrasados > 0 ? "erro" : "sucesso"}
+                onPress={() => setRotaAdmin("pagamentos")}
+              />
+
+              <AcaoInteligente
+                titulo="Vencem em breve"
+                numero={vencendo}
+                descricao="nos próximos 7 dias"
+                tipo={vencendo > 0 ? "alerta" : "sucesso"}
+                onPress={() => setRotaAdmin("calendario")}
+              />
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.termosAdminTopo}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.secaoTituloSemMargem}>
+                  Aceites dos Termos de Uso
+                </Text>
+                <Text style={styles.textoSecundario}>
+                  Registro permanente das contas que aceitaram os termos.
+                </Text>
+              </View>
+
+              <View style={styles.termosAdminContador}>
+                <Text style={styles.termosAdminContadorNumero}>
+                  {aceitesTermos.length}
+                </Text>
+                <Text style={styles.termosAdminContadorTexto}>
+                  aceites
+                </Text>
+              </View>
+            </View>
+
+            {carregandoAceites ? (
+              <SkeletonLinha />
+            ) : aceitesTermos.length === 0 ? (
+              <Text style={styles.textoSecundario}>
+                Nenhum aceite registrado ainda.
+              </Text>
+            ) : (
+              aceitesTermos.map((aceite) => (
+                <View key={aceite.id} style={styles.termosAdminLinha}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.termosAdminNome}>
+                      {aceite.name || "Responsável"}
+                    </Text>
+                    <Text style={styles.termosAdminEmail}>
+                      {aceite.email || "E-mail não informado"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.termosAdminDireita}>
+                    <Text style={styles.termosAdminStatus}>ACEITO</Text>
+                    <Text style={styles.termosAdminData}>
+                      {formatarTimestamp(aceite.termosAceitosEm)}
+                    </Text>
+                    <Text style={styles.termosAdminVersao}>
+                      Versão {aceite.termosVersao || "1.0"}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+
+          <View style={styles.card}>
             <Text style={styles.secaoTituloSemMargem}>Situação financeira</Text>
 
             <BarraResumo
@@ -3365,12 +4560,22 @@ function exportarBackupCompleto() {
             />
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.secaoTituloSemMargem}>
+          <View style={[styles.card, mobile && styles.graficoCardMobile]}>
+            <Text
+              style={[
+                styles.secaoTituloSemMargem,
+                mobile && styles.graficoTituloMobile,
+              ]}
+            >
               Financeiro anual — {anoAtual}
             </Text>
 
-            <View style={styles.graficoAnual}>
+            <View
+              style={[
+                styles.graficoAnual,
+                mobile && styles.graficoAnualMobile,
+              ]}
+            >
               {financeiroMensalAno.map((item) => {
                 const altura = Math.max(
                   5,
@@ -3378,26 +4583,83 @@ function exportarBackupCompleto() {
                 );
 
                 return (
-                  <View key={item.mes} style={styles.graficoColunaArea}>
-                    <Text style={styles.graficoValor}>
+                  <Pressable
+                    key={item.mes}
+                    style={[
+                      styles.graficoColunaArea,
+                      mobile && styles.graficoColunaAreaMobile,
+                    ]}
+                    onPress={() =>
+                      setGraficoTooltip({
+                        mes: item.mes,
+                        valor: item.valor,
+                      })
+                    }
+                    onHoverIn={() =>
+                      setGraficoTooltip({
+                        mes: item.mes,
+                        valor: item.valor,
+                      })
+                    }
+                    onHoverOut={() => setGraficoTooltip(null)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${nomeMes(item.mes)}: R$ ${item.valor.toFixed(2)}`}
+                  >
+                    {graficoTooltip?.mes === item.mes && (
+                      <View style={styles.graficoTooltip}>
+                        <Text style={styles.graficoTooltipMes}>
+                          {nomeMes(item.mes)}
+                        </Text>
+                        <Text style={styles.graficoTooltipValor}>
+                          R$ {item.valor.toFixed(2).replace(".", ",")}
+                        </Text>
+                      </View>
+                    )}
+
+                    <Text
+                      numberOfLines={2}
+                      style={[
+                        styles.graficoValor,
+                        mobile && styles.graficoValorMobile,
+                      ]}
+                    >
                       {item.valor > 0
                         ? `R$ ${Math.round(item.valor)}`
                         : ""}
                     </Text>
 
-                    <View style={styles.graficoBase}>
-                      <View
+                    <View
+                      style={[
+                        styles.graficoBase,
+                        mobile && styles.graficoBaseMobile,
+                      ]}
+                    >
+                      <Animated.View
                         style={[
                           styles.graficoBarra,
-                          { height: altura },
+                          graficoTooltip?.mes === item.mes &&
+                            styles.graficoBarraAtiva,
+                          {
+                            height: graficoAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, altura],
+                            }),
+                          },
                         ]}
                       />
                     </View>
 
-                    <Text style={styles.graficoMes}>
+                    <Text
+                      style={[
+                        styles.graficoMes,
+                        mobile && styles.graficoMesMobile,
+                        graficoTooltip?.mes === item.mes &&
+                          styles.graficoMesAtivo,
+                      ]}
+                    >
                       {nomeMes(item.mes).slice(0, 3)}
                     </Text>
-                  </View>
+                  </Pressable>
                 );
               })}
             </View>
@@ -3501,7 +4763,7 @@ function exportarBackupCompleto() {
           <View style={styles.toolbar}>
             <TextInput
               style={[styles.input, styles.inputBusca]}
-              placeholder="Buscar por aluno, responsável, escola ou bairro"
+              placeholder="Buscar aluno, responsável, telefone, e-mail, escola ou bairro"
               placeholderTextColor="#9C8F92"
               value={buscaAluno}
               onChangeText={setBuscaAluno}
@@ -3535,6 +4797,26 @@ function exportarBackupCompleto() {
               onPress={() => setFiltroStatus("inativo")}
             >
               <Text style={styles.filtroButtonText}>Inativos</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.filtroButton,
+                filtroStatus === "pendente" && styles.filtroButtonAtivo,
+              ]}
+              onPress={() => setFiltroStatus("pendente")}
+            >
+              <Text style={styles.filtroButtonText}>Pendentes</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.filtroButton,
+                filtroStatus === "recusado" && styles.filtroButtonAtivo,
+              ]}
+              onPress={() => setFiltroStatus("recusado")}
+            >
+              <Text style={styles.filtroButtonText}>Recusados</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -3866,6 +5148,31 @@ function exportarBackupCompleto() {
                 ))
               )}
 
+              <Text style={styles.secaoTitulo}>Histórico de alterações</Text>
+
+              {historicoAlunoSelecionado.length === 0 ? (
+                <Text style={styles.textoSecundario}>
+                  Nenhuma alteração registrada ainda.
+                </Text>
+              ) : (
+                historicoAlunoSelecionado.slice(0, 12).map((item) => (
+                  <View key={item.id} style={styles.historicoAlteracaoLinha}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.historicoAlteracaoAcao}>
+                        {item.acao}
+                      </Text>
+                      <Text style={styles.textoSecundario}>
+                        {item.autorTipo === "admin" ? "Administrador" : "Responsável"}
+                        {item.autorEmail ? ` • ${item.autorEmail}` : ""}
+                      </Text>
+                    </View>
+                    <Text style={styles.historicoAlteracaoData}>
+                      {formatarTimestamp(item.criadoEm)}
+                    </Text>
+                  </View>
+                ))
+              )}
+
               <BotaoAnimado
                 texto="Fechar detalhes"
                 secundario
@@ -3875,7 +5182,7 @@ function exportarBackupCompleto() {
           )}
 
           {carregandoAlunos ? (
-            <ActivityIndicator size="large" color={VINHO} />
+            <SkeletonCard />
           ) : alunosFiltrados.length === 0 ? (
             <Vazio texto="Nenhum aluno encontrado com esses filtros." />
           ) : (
@@ -3908,7 +5215,7 @@ function exportarBackupCompleto() {
                       onPress={() =>
                         abrirWhatsApp(
                           aluno.telefone,
-                          `Olá ${aluno.nomeResponsavel || ""}! Aqui é da Angel Transportes.`
+                          `Olá ${aluno.nomeResponsavel || ""}! Aqui é da Angel Transports.`
                         )
                       }
                     >
@@ -3969,7 +5276,7 @@ function exportarBackupCompleto() {
           </View>
 
           {carregandoPagamentos ? (
-            <ActivityIndicator size="large" color={VINHO} />
+            <SkeletonCard />
           ) : (
             alunosAtivos.map((aluno, index) => {
               const pagamento = pagamentos.find(
@@ -4005,6 +5312,20 @@ function exportarBackupCompleto() {
               setMesSelecionado(new Date(anoAtual, mesAtual, 1))
             }
           />
+
+          <View style={styles.centralResumoGrid}>
+            <CentralResumo titulo="Pagos" valor={String(totalPago)} tipo="sucesso" />
+            <CentralResumo
+              titulo="Atrasados"
+              valor={String(totalAtrasados)}
+              tipo={totalAtrasados > 0 ? "erro" : "sucesso"}
+            />
+            <CentralResumo
+              titulo="Próximos 7 dias"
+              valor={String(vencendo)}
+              tipo={vencendo > 0 ? "alerta" : "sucesso"}
+            />
+          </View>
 
           <CalendarioPagamentos
             data={mesSelecionado}
@@ -4121,10 +5442,27 @@ function exportarBackupCompleto() {
             >
               <Text style={styles.exportarButtonText}>Backup JSON</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.exportarButton}
+              onPress={() =>
+                baixarCSV("auditoria-angel-transports.csv", [
+                  ["Ação", "Detalhes", "Administrador", "Data"],
+                  ...logsSistema.map((log) => [
+                    log.acao || "",
+                    log.detalhes || "",
+                    log.adminEmail || "",
+                    formatarTimestamp(log.criadoEm),
+                  ]),
+                ])
+              }
+            >
+              <Text style={styles.exportarButtonText}>Auditoria CSV</Text>
+            </TouchableOpacity>
           </View>
 
           {carregandoLogs ? (
-            <ActivityIndicator size="large" color={VINHO} />
+            <SkeletonCard />
           ) : logsSistema.length === 0 ? (
             <Vazio texto="Nenhuma atividade registrada." />
           ) : (
@@ -4247,13 +5585,572 @@ function exportarBackupCompleto() {
           </View>
         </>
       )}
-    </ScrollView>
+      </ScrollView>
+
+      {mobile && (
+        <MobileBottomNav
+          rota={rotaAdmin}
+          mudarRota={setRotaAdmin}
+          pendentes={solicitacoesPendentes.length}
+        />
+      )}
+
+      <ConfirmacaoModal
+        visivel={!!confirmacao}
+        titulo={confirmacao?.titulo || ""}
+        mensagem={confirmacao?.mensagem || ""}
+        cancelar={() => setConfirmacao(null)}
+        confirmar={() => {
+          const acao = confirmacao?.confirmar;
+          setConfirmacao(null);
+          acao?.();
+        }}
+      />
+    </View>
   );
 }
 
 // =====================================================
 // COMPONENTES
 // =====================================================
+
+function OfflineBanner({ online }: { online: boolean }) {
+  if (online) return null;
+
+  return (
+    <View style={styles.offlineBanner} accessibilityRole="alert">
+      <View style={styles.offlinePonto} />
+
+      <View style={{ flex: 1 }}>
+        <Text style={styles.offlineTitulo}>Sem conexão com o sistema</Text>
+        <Text style={styles.offlineTexto}>
+          Evite salvar alterações até a conexão voltar.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function CentralResumo({
+  titulo,
+  valor,
+  tipo,
+}: {
+  titulo: string;
+  valor: string;
+  tipo: "sucesso" | "alerta" | "erro" | "neutro";
+}) {
+  return (
+    <View style={styles.centralResumoCard}>
+      <Text style={styles.centralResumoTitulo}>{titulo}</Text>
+
+      <Text
+        style={[
+          styles.centralResumoValor,
+          tipo === "sucesso" && { color: VERDE },
+          tipo === "alerta" && { color: AMARELO },
+          tipo === "erro" && { color: VERMELHO },
+        ]}
+      >
+        {valor}
+      </Text>
+    </View>
+  );
+}
+
+function CentralAcao({
+  titulo,
+  descricao,
+  onPress,
+}: {
+  titulo: string;
+  descricao: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={styles.centralAcaoCard}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={titulo}
+    >
+      <View style={styles.centralAcaoSeta}>
+        <Text style={styles.centralAcaoSetaTexto}>→</Text>
+      </View>
+
+      <Text style={styles.centralAcaoTitulo}>{titulo}</Text>
+      <Text style={styles.centralAcaoDescricao}>{descricao}</Text>
+    </Pressable>
+  );
+}
+
+function AcaoInteligente({
+  titulo,
+  numero,
+  descricao,
+  tipo,
+  onPress,
+}: {
+  titulo: string;
+  numero: number;
+  descricao: string;
+  tipo: "sucesso" | "alerta" | "erro";
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.acaoInteligenteCard}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${titulo}: ${numero} ${descricao}`}
+    >
+      <StatusChip
+        texto={tipo === "sucesso" ? "OK" : "Atenção"}
+        tipo={tipo}
+      />
+
+      <Text style={styles.acaoInteligenteNumero}>{numero}</Text>
+      <Text style={styles.acaoInteligenteTitulo}>{titulo}</Text>
+      <Text style={styles.acaoInteligenteDescricao}>{descricao}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function ConfirmacaoModal({
+  visivel,
+  titulo,
+  mensagem,
+  cancelar,
+  confirmar,
+}: {
+  visivel: boolean;
+  titulo: string;
+  mensagem: string;
+  cancelar: () => void;
+  confirmar: () => void;
+}) {
+  const escala = useRef(new Animated.Value(0.9)).current;
+  const opacidade = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visivel) {
+      escala.setValue(0.9);
+      opacidade.setValue(0);
+      Animated.parallel([
+        Animated.spring(escala, {
+          toValue: 1,
+          speed: 20,
+          bounciness: 5,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacidade, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visivel]);
+
+  return (
+    <Modal
+      visible={visivel}
+      transparent
+      animationType="fade"
+      onRequestClose={cancelar}
+    >
+      <View style={styles.modalOverlay}>
+        <Animated.View
+          style={[
+            styles.modalCard,
+            {
+              opacity: opacidade,
+              transform: [{ scale: escala }],
+            },
+          ]}
+        >
+          <View style={styles.modalIcone}>
+            <Text style={styles.modalIconeText}>!</Text>
+          </View>
+
+          <Text style={styles.modalTitulo}>{titulo}</Text>
+          <Text style={styles.modalMensagem}>{mensagem}</Text>
+
+          <View style={styles.modalAcoes}>
+            <TouchableOpacity
+              style={styles.modalCancelar}
+              onPress={cancelar}
+              accessibilityRole="button"
+              accessibilityLabel="Cancelar"
+            >
+              <Text style={styles.modalCancelarTexto}>Cancelar</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.modalConfirmar}
+              onPress={confirmar}
+              accessibilityRole="button"
+              accessibilityLabel="Confirmar ação"
+            >
+              <Text style={styles.modalConfirmarTexto}>Confirmar</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+function MobileBottomNav({
+  rota,
+  mudarRota,
+  pendentes,
+}: {
+  rota: RotaAdmin;
+  mudarRota: (rota: RotaAdmin) => void;
+  pendentes: number;
+}) {
+  const itens: { rota: RotaAdmin; icone: string; texto: string }[] = [
+    { rota: "dashboard", icone: "⌂", texto: "Início" },
+    { rota: "alunos", icone: "♙", texto: "Alunos" },
+    { rota: "pagamentos", icone: "$", texto: "Pagamentos" },
+    { rota: "avisos", icone: "!", texto: "Avisos" },
+    { rota: "configuracoes", icone: "⚙", texto: "Config." },
+  ];
+
+  return (
+    <View style={styles.mobileBottomNav}>
+      {itens.map((item) => (
+        <MobileBottomItem
+          key={item.rota}
+          item={item}
+          ativo={rota === item.rota}
+          badge={
+            item.rota === "avisos" && pendentes > 0
+              ? Math.min(pendentes, 9)
+              : 0
+          }
+          onPress={() => mudarRota(item.rota)}
+        />
+      ))}
+    </View>
+  );
+}
+
+function MobileBottomItem({
+  item,
+  ativo,
+  badge,
+  onPress,
+}: {
+  item: { rota: RotaAdmin; icone: string; texto: string };
+  ativo: boolean;
+  badge: number;
+  onPress: () => void;
+}) {
+  const progresso = useRef(new Animated.Value(ativo ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(progresso, {
+      toValue: ativo ? 1 : 0,
+      speed: 20,
+      bounciness: 5,
+      useNativeDriver: true,
+    }).start();
+  }, [ativo]);
+
+  const escala = progresso.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.12],
+  });
+
+  const subir = progresso.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -4],
+  });
+
+  return (
+    <TouchableOpacity
+      style={styles.mobileBottomItem}
+      onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: ativo }}
+      accessibilityLabel={item.texto}
+    >
+      <Animated.View
+        style={[
+          styles.mobileBottomIcone,
+          ativo && styles.mobileBottomIconeAtivo,
+          { transform: [{ scale: escala }, { translateY: subir }] },
+        ]}
+      >
+        <Text
+          style={[
+            styles.mobileBottomIconeTexto,
+            ativo && styles.mobileBottomIconeTextoAtivo,
+          ]}
+        >
+          {item.icone}
+        </Text>
+
+        {badge > 0 && (
+          <View style={styles.mobileBottomBadge}>
+            <Text style={styles.mobileBottomBadgeTexto}>{badge}</Text>
+          </View>
+        )}
+      </Animated.View>
+
+      <Text
+        style={[
+          styles.mobileBottomTexto,
+          ativo && styles.mobileBottomTextoAtivo,
+        ]}
+      >
+        {item.texto}
+      </Text>
+
+      <Animated.View
+        style={[
+          styles.mobileBottomIndicador,
+          {
+            opacity: progresso,
+            transform: [{ scaleX: progresso }],
+          },
+        ]}
+      />
+    </TouchableOpacity>
+  );
+}
+
+function SkeletonCard() {
+  const pulso = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulso, {
+          toValue: 0.75,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulso, {
+          toValue: 0.35,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  return (
+    <Animated.View style={[styles.skeletonCard, { opacity: pulso }]}>
+      <View style={styles.skeletonTitulo} />
+      <View style={styles.skeletonLinhaGrande} />
+      <View style={styles.skeletonLinhaMedia} />
+    </Animated.View>
+  );
+}
+
+function SkeletonLinha() {
+  const pulso = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulso, {
+          toValue: 0.75,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulso, {
+          toValue: 0.35,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  return <Animated.View style={[styles.skeletonLinha, { opacity: pulso }]} />;
+}
+
+function SuccessCheck() {
+  const escala = useRef(new Animated.Value(0)).current;
+  const giro = useRef(new Animated.Value(0)).current;
+  const halo = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.parallel([
+        Animated.spring(escala, {
+          toValue: 1,
+          speed: 15,
+          bounciness: 12,
+          useNativeDriver: true,
+        }),
+        Animated.timing(giro, {
+          toValue: 1,
+          duration: 520,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.timing(halo, {
+        toValue: 1,
+        duration: 650,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  const rotacao = giro.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["-30deg", "0deg"],
+  });
+
+  const haloEscala = halo.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.7, 1.8],
+  });
+
+  const haloOpacidade = halo.interpolate({
+    inputRange: [0, 0.3, 1],
+    outputRange: [0, 0.32, 0],
+  });
+
+  return (
+    <View style={styles.successCheckWrapper}>
+      <Animated.View
+        style={[
+          styles.successHalo,
+          {
+            opacity: haloOpacidade,
+            transform: [{ scale: haloEscala }],
+          },
+        ]}
+      />
+
+      <Animated.View
+        style={[
+          styles.checkCircle,
+          {
+            transform: [{ scale: escala }, { rotate: rotacao }],
+          },
+        ]}
+      >
+        <Text style={styles.check}>✓</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
+function FeedbackBanner({ mensagem }: { mensagem: string }) {
+  const entrada = useRef(new Animated.Value(-18)).current;
+  const opacidade = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!mensagem) return;
+
+    entrada.setValue(-18);
+    opacidade.setValue(0);
+
+    Animated.parallel([
+      Animated.spring(entrada, {
+        toValue: 0,
+        speed: 20,
+        bounciness: 5,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacidade, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [mensagem]);
+
+  if (!mensagem) return null;
+
+  return (
+    <Animated.View
+      style={[
+        styles.feedbackBanner,
+        {
+          opacity: opacidade,
+          transform: [{ translateY: entrada }],
+        },
+      ]}
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+    >
+      <View style={styles.toastCheck}>
+        <Text style={styles.toastCheckText}>✓</Text>
+      </View>
+      <Text style={styles.feedbackBannerTexto}>{mensagem}</Text>
+    </Animated.View>
+  );
+}
+
+function SessaoBadge({
+  tipo,
+  email,
+}: {
+  tipo: "Administrador" | "Responsável";
+  email: string;
+}) {
+  return (
+    <View style={styles.sessaoBadge}>
+      <View
+        style={[
+          styles.sessaoBolinha,
+          { backgroundColor: tipo === "Administrador" ? VINHO : VERDE },
+        ]}
+      />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.sessaoTipo}>Logado como {tipo}</Text>
+        <Text style={styles.sessaoEmail}>{email || "Conta conectada"}</Text>
+      </View>
+    </View>
+  );
+}
+
+
+function StatusChip({
+  texto,
+  tipo = "neutro",
+}: {
+  texto: string;
+  tipo?: "sucesso" | "alerta" | "erro" | "neutro";
+}) {
+  return (
+    <View
+      style={[
+        styles.statusChip,
+        tipo === "sucesso" && styles.statusChipSucesso,
+        tipo === "alerta" && styles.statusChipAlerta,
+        tipo === "erro" && styles.statusChipErro,
+      ]}
+    >
+      <Text
+        style={[
+          styles.statusChipTexto,
+          tipo === "sucesso" && styles.statusChipTextoSucesso,
+          tipo === "alerta" && styles.statusChipTextoAlerta,
+          tipo === "erro" && styles.statusChipTextoErro,
+        ]}
+      >
+        {texto.toUpperCase()}
+      </Text>
+    </View>
+  );
+}
 
 function LogoMenu({ logoAnim }: { logoAnim: Animated.Value }) {
   return (
@@ -4314,6 +6211,8 @@ function BotaoAnimado({
       <Pressable
         style={secundario ? styles.botaoSecundario : styles.botaoPrincipal}
         onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={texto}
         onPressIn={() => {
           Animated.spring(escala, {
             toValue: 0.97,
@@ -4356,20 +6255,29 @@ function CardAnimado({
   delay?: number;
 }) {
   const opacity = useRef(new Animated.Value(0)).current;
-  const movimento = useRef(new Animated.Value(22)).current;
+  const movimento = useRef(new Animated.Value(28)).current;
+  const escala = useRef(new Animated.Value(0.985)).current;
 
   useEffect(() => {
     Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,
-        duration: 400,
+        duration: 380,
         delay,
         useNativeDriver: true,
       }),
-      Animated.timing(movimento, {
+      Animated.spring(movimento, {
         toValue: 0,
-        duration: 400,
         delay,
+        speed: 17,
+        bounciness: 5,
+        useNativeDriver: true,
+      }),
+      Animated.spring(escala, {
+        toValue: 1,
+        delay,
+        speed: 17,
+        bounciness: 4,
         useNativeDriver: true,
       }),
     ]).start();
@@ -4379,7 +6287,10 @@ function CardAnimado({
     <Animated.View
       style={{
         opacity,
-        transform: [{ translateY: movimento }],
+        transform: [
+          { translateY: movimento },
+          { scale: escala },
+        ],
       }}
     >
       {children}
@@ -4743,7 +6654,7 @@ function Campo({
   label: string;
   value: string;
   onChange: (texto: string) => void;
-  placeholder: string;
+  placeholder?: string;
   email?: boolean;
 }) {
   return (
@@ -4758,6 +6669,7 @@ function Campo({
         placeholderTextColor="#9C8F92"
         keyboardType={email ? "email-address" : "default"}
         autoCapitalize={email ? "none" : "sentences"}
+        accessibilityLabel={label}
       />
     </>
   );
@@ -4767,30 +6679,116 @@ function HeaderPagina({
   titulo,
   subtitulo,
   voltar,
+  scrollY,
 }: {
   titulo: string;
   subtitulo: string;
   voltar: () => void;
+  scrollY?: Animated.Value;
 }) {
+  const altura = scrollY
+    ? scrollY.interpolate({
+        inputRange: [0, 90],
+        outputRange: [122, 82],
+        extrapolate: "clamp",
+      })
+    : 122;
+
+  const tituloTamanho = scrollY
+    ? scrollY.interpolate({
+        inputRange: [0, 90],
+        outputRange: [30, 22],
+        extrapolate: "clamp",
+      })
+    : 30;
+
+  const subtituloOpacidade = scrollY
+    ? scrollY.interpolate({
+        inputRange: [0, 65],
+        outputRange: [1, 0],
+        extrapolate: "clamp",
+      })
+    : 1;
+
   return (
-    <View style={styles.pageHeader}>
+    <Animated.View style={[styles.pageHeader, { minHeight: altura }]}>
       <View style={{ flex: 1 }}>
         <Text style={styles.tag}>ANGEL TRANSPORTS</Text>
-        <Text style={styles.pageTitle}>{titulo}</Text>
-        <Text style={styles.pageSubtitulo}>{subtitulo}</Text>
+
+        <Animated.Text
+          style={[
+            styles.pageTitle,
+            { fontSize: tituloTamanho },
+          ]}
+        >
+          {titulo}
+        </Animated.Text>
+
+        <Animated.Text
+          style={[
+            styles.pageSubtitulo,
+            { opacity: subtituloOpacidade },
+          ]}
+        >
+          {subtitulo}
+        </Animated.Text>
       </View>
 
-      <TouchableOpacity style={styles.sairButton} onPress={voltar}>
+      <TouchableOpacity
+        style={styles.sairButton}
+        onPress={voltar}
+        accessibilityRole="button"
+        accessibilityLabel="Voltar"
+      >
         <Text style={styles.sairButtonText}>Voltar</Text>
       </TouchableOpacity>
-    </View>
+    </Animated.View>
   );
 }
 
 function AlunoCard({ aluno }: { aluno: Aluno }) {
+  const [expandido, setExpandido] = useState(false);
+  const animacao = useRef(new Animated.Value(0)).current;
+
+  function alternar() {
+    const proximo = !expandido;
+    setExpandido(proximo);
+
+    Animated.spring(animacao, {
+      toValue: proximo ? 1 : 0,
+      speed: 18,
+      bounciness: 4,
+      useNativeDriver: false,
+    }).start();
+  }
+
+  const alturaDetalhes = animacao.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 265],
+  });
+
+  const opacidadeDetalhes = animacao.interpolate({
+    inputRange: [0, 0.35, 1],
+    outputRange: [0, 0, 1],
+  });
+
+  const rotacao = animacao.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "180deg"],
+  });
+
   return (
     <View style={styles.alunoCard}>
-      <View style={styles.alunoTopo}>
+      <TouchableOpacity
+        style={styles.alunoTopo}
+        onPress={alternar}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: expandido }}
+        accessibilityLabel={`${expandido ? "Fechar" : "Abrir"} detalhes de ${
+          aluno.nomeAluno || "aluno"
+        }`}
+      >
         <View style={styles.alunoAvatar}>
           <Text style={styles.alunoAvatarText}>
             {aluno.nomeAluno?.charAt(0).toUpperCase() || "A"}
@@ -4837,39 +6835,33 @@ function AlunoCard({ aluno }: { aluno: Aluno }) {
             </View>
           )}
         </View>
-      </View>
 
-      <View style={styles.infoGrade}>
-        <Info titulo="Responsável" valor={aluno.nomeResponsavel} />
-        <Info titulo="Telefone" valor={aluno.telefone} />
-        <Info titulo="Bairro" valor={aluno.bairro} />
-        <Info titulo="Turno" valor={aluno.turno} />
-        <Info
-          titulo="Transporte"
-          valor={formatarTipoTransporte(aluno.tipoTransporte)}
-        />
-        <Info
-          titulo="Embarque"
-          valor={aluno.horarioEmbarque || "Não informado"}
-        />
-        <Info
-          titulo="Contrato"
-          valor={
-            aluno.statusContrato === "assinado"
-              ? "Assinado"
-              : "Pendente"
-          }
-        />
-      </View>
-    </View>
-  );
-}
+        <Animated.View style={{ transform: [{ rotate: rotacao }] }}>
+          <Text style={styles.alunoExpandirIcone}>⌄</Text>
+        </Animated.View>
+      </TouchableOpacity>
 
-function AvisoCard({ aviso }: { aviso: Aviso }) {
-  return (
-    <View style={styles.avisoCard}>
-      <Text style={styles.avisoTitulo}>{aviso.titulo}</Text>
-      <Text style={styles.avisoMensagem}>{aviso.mensagem}</Text>
+      <Animated.View
+        style={[
+          styles.alunoDetalhesAnimados,
+          {
+            maxHeight: alturaDetalhes,
+            opacity: opacidadeDetalhes,
+          },
+        ]}
+      >
+        <View style={styles.infoGrade}>
+          <Info titulo="Responsável" valor={aluno.nomeResponsavel} />
+          <Info titulo="Telefone" valor={aluno.telefone} />
+          <Info titulo="Bairro" valor={aluno.bairro} />
+          <Info titulo="Turno" valor={aluno.turno} />
+          <Info titulo="Tipo" valor={formatarTipoTransporte(aluno.tipoTransporte)} />
+          <Info
+            titulo="Emergência"
+            valor={aluno.contatoEmergencia || "Não informado"}
+          />
+        </View>
+      </Animated.View>
     </View>
   );
 }
@@ -4908,25 +6900,89 @@ function ResumoCard({
   verde?: boolean;
   vermelho?: boolean;
 }) {
+  const entrada = useRef(new Animated.Value(0)).current;
+  const numero = Number(String(valor).replace(/[^\d.-]/g, ""));
+  const somenteNumero = /^-?\d+(\.\d+)?$/.test(valor.trim());
+  const [numeroVisivel, setNumeroVisivel] = useState(
+    somenteNumero ? "0" : valor
+  );
+
+  useEffect(() => {
+    entrada.setValue(0);
+
+    const listener = entrada.addListener(({ value: atual }) => {
+      if (somenteNumero && Number.isFinite(numero)) {
+        setNumeroVisivel(String(Math.round(numero * atual)));
+      }
+    });
+
+    Animated.timing(entrada, {
+      toValue: 1,
+      duration: 700,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+
+    return () => entrada.removeListener(listener);
+  }, [valor]);
+
   return (
-    <View
-      style={[
-        styles.dashboardCard,
-        verde && styles.dashboardCardVerde,
-        vermelho && styles.dashboardCardVermelho,
-      ]}
-    >
-      <Text style={styles.dashboardCardLabel}>{titulo}</Text>
-      <Text
+    <CardHover>
+      <View
         style={[
-          styles.dashboardCardValor,
-          verde && { color: VERDE },
-          vermelho && { color: VERMELHO },
+          styles.dashboardCard,
+          verde && styles.dashboardCardVerde,
+          vermelho && styles.dashboardCardVermelho,
         ]}
       >
-        {valor}
-      </Text>
-    </View>
+        <Text style={styles.dashboardCardLabel}>{titulo}</Text>
+        <Text
+          style={[
+            styles.dashboardCardValor,
+            verde && { color: VERDE },
+            vermelho && { color: VERMELHO },
+          ]}
+        >
+          {somenteNumero ? numeroVisivel : valor}
+        </Text>
+      </View>
+    </CardHover>
+  );
+}
+
+function CardHover({ children }: { children: ReactNode }) {
+  const escala = useRef(new Animated.Value(1)).current;
+  const subir = useRef(new Animated.Value(0)).current;
+
+  const animar = (ativo: boolean) => {
+    Animated.parallel([
+      Animated.spring(escala, {
+        toValue: ativo ? 1.018 : 1,
+        speed: 22,
+        bounciness: 4,
+        useNativeDriver: true,
+      }),
+      Animated.spring(subir, {
+        toValue: ativo ? -4 : 0,
+        speed: 22,
+        bounciness: 4,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  return (
+    <Animated.View
+      style={{
+        flexGrow: 1,
+        flexBasis: 150,
+        transform: [{ scale: escala }, { translateY: subir }],
+      }}
+    >
+      <Pressable onHoverIn={() => animar(true)} onHoverOut={() => animar(false)}>
+        {children}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -5031,7 +7087,7 @@ function gerarComprovantePagamento(
       </head>
       <body>
         <div class="comprovante">
-          <h1>Angel Transportes</h1>
+          <h1>Angel Transports</h1>
           <p>Comprovante de pagamento</p>
 
           <div class="linha">
@@ -5170,6 +7226,844 @@ function estaVencendoEmSeteDias(data?: string) {
 // =====================================================
 
 const styles = StyleSheet.create({
+  graficoTooltip: {
+    position: "absolute",
+    top: -46,
+    left: "50%",
+    transform: [{ translateX: -38 }],
+    minWidth: 76,
+    backgroundColor: VINHO_ESCURO,
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    zIndex: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+
+  graficoTooltipMes: {
+    color: "#F4DDE5",
+    fontSize: 8,
+    fontWeight: "800",
+  },
+
+  graficoTooltipValor: {
+    color: BRANCO,
+    fontSize: 9,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+
+  graficoBarraAtiva: {
+    opacity: 0.78,
+  },
+
+  graficoMesAtivo: {
+    color: VINHO,
+    fontWeight: "900",
+  },
+
+  alunoDetalhesAnimados: {
+    overflow: "hidden",
+  },
+
+  alunoExpandirIcone: {
+    color: VINHO,
+    fontSize: 22,
+    fontWeight: "900",
+    paddingHorizontal: 4,
+  },
+
+  mobileBottomIndicador: {
+    width: 22,
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: VINHO,
+    marginTop: 4,
+  },
+
+  successCheckWrapper: {
+    width: 94,
+    height: 94,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+    marginBottom: 12,
+  },
+
+  successHalo: {
+    position: "absolute",
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: VERDE,
+  },
+
+
+  centralResponsavelPage: {
+    width: "100%",
+    maxWidth: 940,
+    alignSelf: "center",
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 60,
+  },
+
+  centralResponsavelHero: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    backgroundColor: VINHO,
+    borderRadius: 26,
+    padding: 22,
+    marginBottom: 14,
+    shadowColor: "#350812",
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 9 },
+    elevation: 5,
+  },
+
+  centralResponsavelTitulo: {
+    color: BRANCO,
+    fontSize: 28,
+    fontWeight: "900",
+    letterSpacing: -0.5,
+  },
+
+  centralResponsavelSub: {
+    color: "#F5E8EC",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4,
+  },
+
+  notificacaoTopo: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#F8EDF1",
+    borderWidth: 1,
+    borderColor: "#E5CDD5",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+
+  notificacaoSino: {
+    color: VINHO,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+
+  notificacaoBadge: {
+    position: "absolute",
+    right: -5,
+    top: -5,
+    minWidth: 19,
+    height: 19,
+    borderRadius: 10,
+    paddingHorizontal: 4,
+    backgroundColor: VERMELHO,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: BRANCO,
+  },
+
+  notificacaoBadgeTexto: {
+    color: BRANCO,
+    fontSize: 8,
+    fontWeight: "900",
+  },
+
+  centralCarteirinha: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+
+  centralAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    backgroundColor: "#F1E2E7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  centralAvatarTexto: {
+    color: VINHO,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+
+  centralAlunoNome: {
+    color: VINHO_ESCURO,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  centralAlunoMeta: {
+    color: "#74686C",
+    fontSize: 11,
+    marginTop: 4,
+  },
+
+  centralResumoGrid: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 14,
+  },
+
+  centralResumoCard: {
+    flexGrow: 1,
+    flexBasis: 120,
+    minHeight: 88,
+    backgroundColor: BRANCO,
+    borderRadius: 18,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: "#EAE0E3",
+    justifyContent: "space-between",
+  },
+
+  centralResumoTitulo: {
+    color: "#786B70",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+
+  centralResumoValor: {
+    color: VINHO,
+    fontSize: 21,
+    fontWeight: "900",
+    marginTop: 10,
+  },
+
+  centralAvisoTopo: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 12,
+  },
+
+  centralAvisoTitulo: {
+    color: VINHO_ESCURO,
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 6,
+  },
+
+  centralLink: {
+    marginTop: 10,
+    paddingVertical: 8,
+  },
+
+  centralLinkTexto: {
+    color: VINHO,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  centralAcoesGrid: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 12,
+  },
+
+  centralAcaoCard: {
+    flexGrow: 1,
+    flexBasis: 180,
+    minHeight: 120,
+    backgroundColor: BRANCO,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#EAE0E3",
+    padding: 16,
+  },
+
+  centralAcaoSeta: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#F2E5E9",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-end",
+  },
+
+  centralAcaoSetaTexto: {
+    color: VINHO,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  centralAcaoTitulo: {
+    color: VINHO_ESCURO,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 5,
+  },
+
+  centralAcaoDescricao: {
+    color: "#786B70",
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 4,
+  },
+
+  offlineBanner: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#FFF3F4",
+    borderWidth: 1,
+    borderColor: "#EBC6CB",
+    borderRadius: 15,
+    padding: 12,
+    marginBottom: 12,
+  },
+
+  offlinePonto: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: VERMELHO,
+  },
+
+  offlineTitulo: {
+    color: VERMELHO,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  offlineTexto: {
+    color: "#806D72",
+    fontSize: 9,
+    marginTop: 2,
+  },
+
+  adminUtilidades: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  buscaGlobalBox: {
+    width: "100%",
+    position: "relative",
+    zIndex: 30,
+    marginBottom: 12,
+  },
+
+  buscaGlobalInput: {
+    width: "100%",
+    minHeight: 48,
+    backgroundColor: BRANCO,
+    borderWidth: 1,
+    borderColor: "#E4D7DB",
+    borderRadius: 16,
+    paddingHorizontal: 15,
+    color: VINHO_ESCURO,
+    fontSize: 13,
+  },
+
+  buscaGlobalResultados: {
+    width: "100%",
+    marginTop: 6,
+    backgroundColor: BRANCO,
+    borderWidth: 1,
+    borderColor: "#E4D7DB",
+    borderRadius: 16,
+    padding: 8,
+    shadowColor: "#390B18",
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 7,
+  },
+
+  buscaGlobalItem: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    borderRadius: 12,
+  },
+
+  buscaGlobalAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    backgroundColor: "#F2E5E9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  buscaGlobalAvatarTexto: {
+    color: VINHO,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  buscaGlobalNome: {
+    color: VINHO_ESCURO,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  buscaGlobalMeta: {
+    color: "#83757A",
+    fontSize: 9,
+    marginTop: 2,
+  },
+
+  acoesInteligentesGrid: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 14,
+  },
+
+  acaoInteligenteCard: {
+    flexGrow: 1,
+    flexBasis: 160,
+    minHeight: 150,
+    borderRadius: 18,
+    padding: 14,
+    backgroundColor: "#FBF8F9",
+    borderWidth: 1,
+    borderColor: "#E9DEE2",
+  },
+
+  acaoInteligenteNumero: {
+    color: VINHO_ESCURO,
+    fontSize: 30,
+    fontWeight: "900",
+    marginTop: 13,
+  },
+
+  acaoInteligenteTitulo: {
+    color: VINHO_ESCURO,
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+
+  acaoInteligenteDescricao: {
+    color: "#81747A",
+    fontSize: 9,
+    marginTop: 3,
+  },
+
+
+  adminPageMobileComNav: {
+    paddingBottom: 118,
+  },
+
+  mobileBottomNav: {
+    position: "absolute",
+    left: 10,
+    right: 10,
+    bottom: 10,
+    minHeight: 70,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    backgroundColor: "rgba(255,255,255,0.97)",
+    borderWidth: 1,
+    borderColor: "#E9DEE2",
+    borderRadius: 24,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    shadowColor: "#3C0C19",
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+
+  mobileBottomItem: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 54,
+  },
+
+  mobileBottomIcone: {
+    minWidth: 31,
+    height: 27,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+
+  mobileBottomIconeAtivo: {
+    backgroundColor: "#F3E5EA",
+  },
+
+  mobileBottomIconeTexto: {
+    color: "#85777C",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+
+  mobileBottomIconeTextoAtivo: {
+    color: VINHO,
+  },
+
+  mobileBottomTexto: {
+    color: "#8A7D82",
+    fontSize: 8,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+
+  mobileBottomTextoAtivo: {
+    color: VINHO,
+  },
+
+  mobileBottomBadge: {
+    position: "absolute",
+    right: -4,
+    top: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: VERMELHO,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+
+  mobileBottomBadgeTexto: {
+    color: BRANCO,
+    fontSize: 8,
+    fontWeight: "900",
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(38, 10, 19, 0.48)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 22,
+  },
+
+  modalCard: {
+    width: "100%",
+    maxWidth: 430,
+    backgroundColor: BRANCO,
+    borderRadius: 26,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#2C0712",
+    shadowOpacity: 0.25,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 12,
+  },
+
+  modalIcone: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#FFF0F1",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+
+  modalIconeText: {
+    color: VERMELHO,
+    fontSize: 25,
+    fontWeight: "900",
+  },
+
+  modalTitulo: {
+    color: VINHO_ESCURO,
+    fontSize: 21,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  modalMensagem: {
+    color: "#74686C",
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+    marginTop: 10,
+  },
+
+  modalAcoes: {
+    width: "100%",
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 22,
+  },
+
+  modalCancelar: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#DED1D5",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FBF8F9",
+  },
+
+  modalCancelarTexto: {
+    color: "#6D6065",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
+  modalConfirmar: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: VERMELHO,
+  },
+
+  modalConfirmarTexto: {
+    color: BRANCO,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
+  skeletonCard: {
+    width: "100%",
+    minHeight: 135,
+    backgroundColor: "#EEE6E9",
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 14,
+  },
+
+  skeletonTitulo: {
+    width: "42%",
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: "#D8CCD0",
+    marginBottom: 18,
+  },
+
+  skeletonLinhaGrande: {
+    width: "88%",
+    height: 12,
+    borderRadius: 7,
+    backgroundColor: "#DED4D7",
+    marginBottom: 10,
+  },
+
+  skeletonLinhaMedia: {
+    width: "62%",
+    height: 12,
+    borderRadius: 7,
+    backgroundColor: "#DED4D7",
+  },
+
+  skeletonLinha: {
+    width: "100%",
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: "#E5DADD",
+    marginVertical: 8,
+  },
+
+  toastCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: VERDE,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 9,
+  },
+
+  toastCheckText: {
+    color: BRANCO,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
+
+  // =====================================================
+  // CAMADA VISUAL 2026 — ANGEL TRANSPORTES
+  // =====================================================
+
+  statusChip: {
+    alignSelf: "flex-start",
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 999,
+    backgroundColor: "#F1ECEE",
+    borderWidth: 1,
+    borderColor: "#E3D9DC",
+  },
+
+  statusChipSucesso: {
+    backgroundColor: "#EDF8F0",
+    borderColor: "#CBE7D2",
+  },
+
+  statusChipAlerta: {
+    backgroundColor: "#FFF8E8",
+    borderColor: "#F0DCA9",
+  },
+
+  statusChipErro: {
+    backgroundColor: "#FFF0F1",
+    borderColor: "#EBC7CB",
+  },
+
+  statusChipTexto: {
+    color: "#75686D",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
+
+  statusChipTextoSucesso: {
+    color: VERDE,
+  },
+
+  statusChipTextoAlerta: {
+    color: AMARELO,
+  },
+
+  statusChipTextoErro: {
+    color: VERMELHO,
+  },
+
+  emptyState: {
+    width: "100%",
+    minHeight: 135,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 22,
+    borderRadius: 18,
+    backgroundColor: "#FBF8F9",
+    borderWidth: 1,
+    borderColor: "#EEE4E7",
+    borderStyle: "dashed",
+  },
+
+  emptyStateIcone: {
+    color: VINHO,
+    fontSize: 26,
+    fontWeight: "900",
+    marginBottom: 7,
+  },
+
+  emptyStateTitulo: {
+    color: VINHO_ESCURO,
+    fontSize: 15,
+    fontWeight: "900",
+    marginBottom: 4,
+    textAlign: "center",
+  },
+
+
+  feedbackBanner: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F2FBF4",
+    borderWidth: 1,
+    borderColor: "#C7E6CF",
+    borderRadius: 16,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    shadowColor: "#1D6B35",
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+
+  feedbackBannerTexto: {
+    color: VERDE,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  sessaoBadge: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#FBF8F9",
+    borderWidth: 1,
+    borderColor: "#E9DEE2",
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 13,
+    marginBottom: 14,
+  },
+
+  sessaoBolinha: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+
+  sessaoTipo: {
+    color: VINHO_ESCURO,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  sessaoEmail: {
+    color: "#7A6D72",
+    fontSize: 10,
+    marginTop: 2,
+  },
+
+  historicoAlteracaoLinha: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 11,
+    borderTopWidth: 1,
+    borderTopColor: "#EEE3E7",
+  },
+
+  historicoAlteracaoAcao: {
+    color: VINHO_ESCURO,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  historicoAlteracaoData: {
+    color: "#8E8085",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+
+
   statusSistema: {
     flexDirection: "row",
     alignItems: "center",
@@ -5303,6 +8197,132 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
+  termosAdminTopo: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
+    marginBottom: 14,
+  },
+
+  termosAdminContador: {
+    minWidth: 72,
+    backgroundColor: "#F4E9ED",
+    borderWidth: 1,
+    borderColor: "#DFC8D0",
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: "center",
+  },
+
+  termosAdminContadorNumero: {
+    color: VINHO,
+    fontSize: 24,
+    fontWeight: "900",
+    lineHeight: 27,
+  },
+
+  termosAdminContadorTexto: {
+    color: "#7B6B70",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+
+  termosAdminLinha: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#EEE3E7",
+    paddingVertical: 12,
+  },
+
+  termosAdminNome: {
+    color: VINHO_ESCURO,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  termosAdminEmail: {
+    color: "#776B6F",
+    fontSize: 11,
+    marginTop: 3,
+  },
+
+  termosAdminDireita: {
+    alignItems: "flex-end",
+  },
+
+  termosAdminStatus: {
+    color: VERDE,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+
+  termosAdminData: {
+    color: "#665A5E",
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+
+  termosAdminVersao: {
+    color: "#9A8B90",
+    fontSize: 9,
+    marginTop: 2,
+  },
+
+  termosContainer: {
+    width: "100%",
+    marginTop: 2,
+    marginBottom: 16,
+  },
+
+  termosLinha: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 11,
+    paddingVertical: 4,
+  },
+
+  checkboxTermos: {
+    width: 23,
+    height: 23,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: "#C8B4BB",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+
+  checkboxTermosAtivo: {
+    backgroundColor: VINHO,
+    borderColor: VINHO,
+  },
+
+  checkboxTermosCheck: {
+    color: BRANCO,
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 17,
+  },
+
+  termosTexto: {
+    flex: 1,
+    color: "#665A5E",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
+  termosLink: {
+    color: VINHO,
+    fontWeight: "900",
+    textDecorationLine: "underline",
+  },
+
   linksRodape: {
     flexDirection: "row",
     justifyContent: "center",
@@ -5352,6 +8372,54 @@ const styles = StyleSheet.create({
 
   opcaoTransporteTextoAtivo: {
     color: BRANCO,
+  },
+
+  graficoCardMobile: {
+    paddingHorizontal: 14,
+    paddingVertical: 22,
+    overflow: "hidden",
+  },
+
+  graficoTituloMobile: {
+    fontSize: 22,
+    lineHeight: 28,
+    marginBottom: 8,
+  },
+
+  graficoAnualMobile: {
+    width: "100%",
+    gap: 2,
+    minHeight: 165,
+    paddingTop: 12,
+    paddingHorizontal: 0,
+    alignSelf: "stretch",
+  },
+
+  graficoColunaAreaMobile: {
+    flex: 1,
+    minWidth: 0,
+    width: 0,
+  },
+
+  graficoValorMobile: {
+    fontSize: 7,
+    lineHeight: 8,
+    minHeight: 18,
+    width: "100%",
+  },
+
+  graficoBaseMobile: {
+    width: "62%",
+    minWidth: 8,
+    maxWidth: 18,
+    height: 112,
+    borderRadius: 8,
+  },
+
+  graficoMesMobile: {
+    fontSize: 7,
+    lineHeight: 10,
+    marginTop: 6,
   },
 
   graficoAnual: {
@@ -5525,6 +8593,64 @@ const styles = StyleSheet.create({
     gap: 2,
   },
 
+  botaoEditarResponsavel: {
+    width: "100%",
+    marginTop: 12,
+    marginBottom: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: "#F4E9ED",
+    borderWidth: 1,
+    borderColor: "#DFC8D0",
+    alignItems: "center",
+  },
+
+  botaoEditarResponsavelTexto: {
+    color: VINHO_ESCURO,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  observacaoResponsavelBox: {
+    width: "100%",
+    backgroundColor: "#FAF6F7",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E8DDE1",
+    padding: 14,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+
+  edicaoResponsavelCabecalho: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 12,
+  },
+
+  fecharEdicaoResponsavel: {
+    color: VINHO,
+    fontSize: 30,
+    fontWeight: "700",
+    lineHeight: 32,
+    paddingHorizontal: 4,
+  },
+
+  botaoCancelarEdicao: {
+    width: "100%",
+    marginTop: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+
+  botaoCancelarEdicaoTexto: {
+    color: "#75686C",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+
   perfilFinanceiro: {
     backgroundColor: "#FBF7F8",
     borderWidth: 1,
@@ -5660,27 +8786,77 @@ const styles = StyleSheet.create({
   },
 
   hero: {
+    width: "100%",
     minHeight: 390,
-    backgroundColor: VINHO_ESCURO,
-    justifyContent: "center",
+    backgroundColor: VINHO,
+    borderBottomLeftRadius: 38,
+    borderBottomRightRadius: 38,
     alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 22,
+    paddingTop: 36,
+    paddingBottom: 54,
     overflow: "hidden",
-    paddingHorizontal: 24,
-    paddingVertical: 36,
-    borderBottomLeftRadius: 34,
-    borderBottomRightRadius: 34,
-    shadowColor: VINHO_ESCURO,
-    shadowOpacity: 0.2,
-    shadowRadius: 26,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 10,
-    ...(Platform.OS === "web"
-      ? ({
-          backgroundImage:
-            "linear-gradient(135deg, #2C0710 0%, #4B0D1D 46%, #701B35 100%)",
-          boxShadow: "0 24px 70px rgba(55,9,19,0.26)",
-        } as any)
-      : {}),
+  },
+
+  heroMobile: {
+    minHeight: 0,
+    paddingTop: 32,
+    paddingBottom: 34,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 26,
+    borderBottomRightRadius: 26,
+  },
+
+  logoImagemContainerMobile: {
+    width: 108,
+    height: 108,
+    borderRadius: 30,
+    marginBottom: 16,
+  },
+
+  titleMobile: {
+    fontSize: 34,
+    lineHeight: 39,
+    letterSpacing: -0.6,
+    maxWidth: 330,
+  },
+
+  subtitleMobile: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 10,
+    maxWidth: 320,
+    paddingHorizontal: 4,
+  },
+
+  mainMobile: {
+    paddingHorizontal: 14,
+    paddingBottom: 28,
+    marginTop: 18,
+  },
+
+  cardMobile: {
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    marginBottom: 16,
+  },
+
+  cardTitleMobile: {
+    fontSize: 28,
+    lineHeight: 34,
+  },
+
+  infoTransporteWrapper: {
+    width: "100%",
+    marginTop: 2,
+    marginBottom: 18,
+  },
+
+  infoTransporteWrapperMobile: {
+    marginTop: 0,
+    marginBottom: 18,
   },
 
   bolhaGrande: {
@@ -5798,23 +8974,18 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    backgroundColor: "rgba(255,255,255,0.98)",
-    borderRadius: 28,
-    padding: 28,
-    marginBottom: 20,
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 22,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#EEDFE4",
-    shadowColor: "#3C0C19",
-    shadowOpacity: 0.10,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 7,
-    ...(Platform.OS === "web"
-      ? ({
-          boxShadow: "0 22px 60px rgba(71,18,34,0.10)",
-          backdropFilter: "blur(18px)",
-        } as any)
-      : {}),
+    borderColor: "#EEE5E8",
+    shadowColor: "#4A1223",
+    shadowOpacity: 0.07,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
 
   cardGrande: {
@@ -5849,9 +9020,10 @@ const styles = StyleSheet.create({
 
   cardTitle: {
     color: VINHO_ESCURO,
-    fontSize: 31,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: "900",
-    letterSpacing: -0.45,
+    letterSpacing: -0.4,
     marginBottom: 8,
   },
 
@@ -5918,34 +9090,26 @@ const styles = StyleSheet.create({
   },
 
   label: {
-    color: "#3D3336",
-    fontWeight: "800",
-    fontSize: 13,
-    marginBottom: 8,
-    letterSpacing: 0.1,
+    color: "#51464A",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
+    marginBottom: 7,
+    letterSpacing: 0.15,
   },
 
   input: {
-    height: 60,
+    width: "100%",
+    minHeight: 52,
     borderWidth: 1,
-    borderColor: "#E0D4D8",
-    borderRadius: 16,
-    paddingHorizontal: 17,
+    borderColor: "#DDD1D5",
+    borderRadius: 15,
     backgroundColor: "#FCFAFB",
-    marginBottom: 18,
-    color: "#251F21",
-    fontSize: 15,
-    shadowColor: "#3B0A18",
-    shadowOpacity: 0.025,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    outlineStyle: "none" as any,
-    ...(Platform.OS === "web"
-      ? ({
-          transition:
-            "border-color .18s ease, box-shadow .18s ease, background-color .18s ease",
-        } as any)
-      : {}),
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    color: VINHO_ESCURO,
+    fontSize: 14,
+    marginBottom: 14,
   },
 
   textArea: {
@@ -5957,27 +9121,19 @@ const styles = StyleSheet.create({
 
   botaoPrincipal: {
     width: "100%",
-    minHeight: 60,
-    borderRadius: 18,
+    minHeight: 52,
+    borderRadius: 16,
     backgroundColor: VINHO,
-    justifyContent: "center",
     alignItems: "center",
-    marginTop: 10,
+    justifyContent: "center",
     paddingHorizontal: 18,
-    shadowColor: VINHO_ESCURO,
-    shadowOpacity: 0.24,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-    ...(Platform.OS === "web"
-      ? ({
-          cursor: "pointer",
-          backgroundImage:
-            "linear-gradient(135deg, #741A35 0%, #5A1028 100%)",
-          boxShadow: "0 14px 30px rgba(105,23,45,0.25)",
-          transition: "transform .18s ease, box-shadow .18s ease, filter .18s ease",
-        } as any)
-      : {}),
+    paddingVertical: 14,
+    marginTop: 7,
+    shadowColor: VINHO,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
   },
 
   botaoPrincipalTexto: {
@@ -5989,27 +9145,16 @@ const styles = StyleSheet.create({
 
   botaoSecundario: {
     width: "100%",
-    minHeight: 60,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: "#8F2948",
-    justifyContent: "center",
+    minHeight: 50,
+    borderRadius: 16,
+    backgroundColor: "#FBF7F8",
+    borderWidth: 1,
+    borderColor: "#DCCAD0",
     alignItems: "center",
-    marginTop: 12,
+    justifyContent: "center",
     paddingHorizontal: 18,
-    backgroundColor: "#FFFDFE",
-    shadowColor: VINHO,
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
-    ...(Platform.OS === "web"
-      ? ({
-          cursor: "pointer",
-          boxShadow: "0 9px 24px rgba(105,23,45,0.08)",
-          transition: "transform .18s ease, box-shadow .18s ease, background .18s ease",
-        } as any)
-      : {}),
+    paddingVertical: 13,
+    marginTop: 7,
   },
 
   botaoSecundarioTexto: {
@@ -6121,11 +9266,11 @@ const styles = StyleSheet.create({
 
   page: {
     width: "100%",
-    maxWidth: 980,
+    maxWidth: 1180,
     alignSelf: "center",
-    paddingHorizontal: 22,
-    paddingTop: 38,
-    paddingBottom: 72,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 110,
   },
 
   pageHeader: {
@@ -6172,23 +9317,13 @@ const styles = StyleSheet.create({
   },
 
   alunoCard: {
-    backgroundColor: BRANCO,
-    padding: 23,
-    borderRadius: 24,
-    marginBottom: 17,
+    width: "100%",
+    backgroundColor: "#FBF8F9",
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#EBDDE2",
-    shadowColor: "#45101F",
-    shadowOpacity: 0.07,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
-    ...(Platform.OS === "web"
-      ? ({
-          boxShadow: "0 14px 38px rgba(69,16,31,0.07)",
-          transition: "transform .18s ease, box-shadow .18s ease",
-        } as any)
-      : {}),
+    borderColor: "#EADFE3",
+    padding: 17,
+    marginBottom: 10,
   },
 
   alunoTopo: {
@@ -6285,19 +9420,20 @@ const styles = StyleSheet.create({
 
   secaoTitulo: {
     color: VINHO_ESCURO,
-    fontSize: 21,
+    fontSize: 18,
+    lineHeight: 23,
     fontWeight: "900",
-    letterSpacing: -0.25,
-    marginTop: 26,
-    marginBottom: 13,
+    letterSpacing: -0.2,
+    marginTop: 18,
+    marginBottom: 10,
   },
 
   secaoTituloSemMargem: {
     color: VINHO_ESCURO,
-    fontSize: 21,
+    fontSize: 20,
+    lineHeight: 25,
     fontWeight: "900",
     letterSpacing: -0.25,
-    marginBottom: 19,
   },
 
   adminPage: {
@@ -6331,50 +9467,33 @@ const styles = StyleSheet.create({
   },
 
   adminTabs: {
-    gap: 9,
-    paddingBottom: 20,
-    paddingHorizontal: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 8,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEE4E7",
   },
 
   adminTab: {
-    minWidth: 130,
-    minHeight: 48,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
+    minHeight: 42,
+    paddingHorizontal: 15,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 15,
-    backgroundColor: BRANCO,
+    backgroundColor: "#F7F2F4",
     borderWidth: 1,
-    borderColor: "#E9DDE1",
-    shadowColor: "#3C0C19",
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-    ...(Platform.OS === "web"
-      ? ({
-          cursor: "pointer",
-          transition: "transform .18s ease, box-shadow .18s ease",
-        } as any)
-      : {}),
+    borderColor: "#EEE4E7",
   },
 
   adminTabAtiva: {
     backgroundColor: VINHO,
     borderColor: VINHO,
-    shadowColor: VINHO_ESCURO,
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 7 },
-    elevation: 5,
-    ...(Platform.OS === "web"
-      ? ({
-          backgroundImage:
-            "linear-gradient(135deg, #741A35 0%, #5B1128 100%)",
-          boxShadow: "0 12px 28px rgba(105,23,45,0.22)",
-        } as any)
-      : {}),
+    shadowColor: VINHO,
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
 
   adminTabTexto: {
@@ -6388,30 +9507,28 @@ const styles = StyleSheet.create({
   },
 
   dashboardGrid: {
+    width: "100%",
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 14,
-    marginBottom: 20,
+    gap: 12,
+    marginBottom: 16,
   },
 
   dashboardCard: {
     flexGrow: 1,
-    minWidth: 180,
-    backgroundColor: BRANCO,
-    borderRadius: 21,
-    padding: 21,
+    flexBasis: 150,
+    minHeight: 112,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 17,
     borderWidth: 1,
-    borderColor: "#E8DCE0",
-    shadowColor: "#45101F",
-    shadowOpacity: 0.065,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 7 },
-    elevation: 3,
-    ...(Platform.OS === "web"
-      ? ({
-          boxShadow: "0 12px 34px rgba(69,16,31,0.065)",
-        } as any)
-      : {}),
+    borderColor: "#EDE3E6",
+    justifyContent: "space-between",
+    shadowColor: "#4A1223",
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
   },
 
   dashboardCardVerde: {
