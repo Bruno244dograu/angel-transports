@@ -45,7 +45,7 @@ import {
   where,
 } from "firebase/firestore";
 
-import { auth, db } from "../firebase/config";
+import { auth, db } from "./firebase/config";
 
 // =====================================================
 // CONFIGURAÇÕES
@@ -891,7 +891,7 @@ function abrirWhatsApp(numero?: string, mensagem?: string) {
   }
 
   const texto = encodeURIComponent(
-    mensagem || "Olá! Aqui é da Angel Transports."
+    mensagem || "Olá! Aqui é da Angel Transportes."
   );
 
   const url = `https://wa.me/${telefone}?text=${texto}`;
@@ -924,7 +924,7 @@ function ligarParaNumero(numero?: string) {
   if (!telefone) {
     Alert.alert(
       "Telefone não informado",
-      "O telefone da Angel Transports ainda não foi configurado."
+      "O telefone da Angel Transportes ainda não foi configurado."
     );
     return;
   }
@@ -2985,7 +2985,7 @@ function exportarBackupCompleto() {
             Na tela de entrada, digite seu e-mail e toque em “Esqueci minha senha”.
           </Text>
 
-          <Text style={styles.secaoTitulo}>Preciso falar com a Angel Transports</Text>
+          <Text style={styles.secaoTitulo}>Preciso falar com a Angel Transportes</Text>
           <Text style={styles.descricao}>
             Use o botão de ligação na página “Informações do transporte”.
           </Text>
@@ -3157,7 +3157,7 @@ function exportarBackupCompleto() {
 
           <Text style={styles.secaoTitulo}>Contato</Text>
           <Text style={styles.descricao}>
-            Para dúvidas sobre seus dados, entre em contato diretamente com a Angel Transports.
+            Para dúvidas sobre seus dados, entre em contato diretamente com a Angel Transportes.
           </Text>
         </View>
       </ScrollView>
@@ -3172,7 +3172,7 @@ function exportarBackupCompleto() {
     return (
       <ScrollView style={styles.container} contentContainerStyle={styles.page}>
         <HeaderPagina
-          titulo="Conheça a Angel Transports"
+          titulo="Conheça a Angel Transportes"
           subtitulo="Informações atualizadas diretamente pelo nosso painel administrativo."
           voltar={() => setTela("inicio")}
         />
@@ -3246,7 +3246,7 @@ function exportarBackupCompleto() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.secaoTituloSemMargem}>Fale com a Angel Transports</Text>
+          <Text style={styles.secaoTituloSemMargem}>Fale com a Angel Transportes</Text>
           <Text style={styles.descricao}>
             Quer saber sobre disponibilidade, bairros atendidos ou valores? Entre em contato.
           </Text>
@@ -3335,7 +3335,7 @@ function exportarBackupCompleto() {
             </Animated.View>
 
             <Text style={[styles.title, mobile && styles.titleMobile]}>
-              Angel Transports
+              Angel Transportes
             </Text>
 
             <Text style={[styles.subtitle, mobile && styles.subtitleMobile]}>
@@ -3529,7 +3529,7 @@ function exportarBackupCompleto() {
               <View style={styles.rodapeCompleto}>
                 <View style={styles.rodapeDivisor} />
 
-                <Text style={styles.rodapeMarca}>Angel Transports</Text>
+                <Text style={styles.rodapeMarca}>Angel Transportes</Text>
                 <Text style={styles.rodapeDescricao}>
                   Transporte escolar com segurança, organização e transparência.
                 </Text>
@@ -3555,7 +3555,7 @@ function exportarBackupCompleto() {
                 </View>
 
                 <Text style={styles.rodapeCopyright}>
-                  © 2026 Angel Transports. Todos os direitos reservados.
+                  © 2026 Angel Transportes. Todos os direitos reservados.
                 </Text>
               </View>
             </View>
@@ -4031,7 +4031,7 @@ function exportarBackupCompleto() {
       <ScrollView style={styles.container} contentContainerStyle={styles.page}>
         <HeaderPagina
           titulo="Avisos"
-          subtitulo="Comunicados da Angel Transports."
+          subtitulo="Comunicados da Angel Transportes."
           voltar={() => setTela("menu")}
         />
 
@@ -4251,7 +4251,7 @@ function exportarBackupCompleto() {
       >
         <View>
           <Text style={styles.tag}>ADMINISTRADOR</Text>
-          <Text style={styles.adminTitle}>Angel Transports</Text>
+          <Text style={styles.adminTitle}>Angel Transportes</Text>
           <Text style={styles.adminSub}>
             Gestão completa do transporte escolar
           </Text>
@@ -5215,7 +5215,7 @@ function exportarBackupCompleto() {
                       onPress={() =>
                         abrirWhatsApp(
                           aluno.telefone,
-                          `Olá ${aluno.nomeResponsavel || ""}! Aqui é da Angel Transports.`
+                          `Olá ${aluno.nomeResponsavel || ""}! Aqui é da Angel Transportes.`
                         )
                       }
                     >
@@ -6047,6 +6047,32 @@ function SuccessCheck() {
       >
         <Text style={styles.check}>✓</Text>
       </Animated.View>
+    </View>
+  );
+}
+
+function AvisoCard({ aviso }: { aviso: Aviso }) {
+  return (
+    <View style={styles.avisoCardInterno}>
+      <View style={styles.avisoCardTopo}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.avisoCardTitulo}>
+            {aviso.titulo || "Aviso"}
+          </Text>
+
+          <Text style={styles.avisoCardData}>
+            {formatarTimestamp(aviso.criadoEm)}
+          </Text>
+        </View>
+
+        <View style={styles.avisoCardBadge}>
+          <Text style={styles.avisoCardBadgeTexto}>AVISO</Text>
+        </View>
+      </View>
+
+      <Text style={styles.avisoCardMensagem}>
+        {aviso.mensagem || "Sem mensagem."}
+      </Text>
     </View>
   );
 }
@@ -7060,7 +7086,7 @@ function gerarComprovantePagamento(
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>Comprovante - Angel Transports</title>
+        <title>Comprovante - Angel Transportes</title>
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -7087,7 +7113,7 @@ function gerarComprovantePagamento(
       </head>
       <body>
         <div class="comprovante">
-          <h1>Angel Transports</h1>
+          <h1>Angel Transportes</h1>
           <p>Comprovante de pagamento</p>
 
           <div class="linha">
@@ -7226,6 +7252,50 @@ function estaVencendoEmSeteDias(data?: string) {
 // =====================================================
 
 const styles = StyleSheet.create({
+  avisoCardInterno: {
+    width: "100%",
+  },
+
+  avisoCardTopo: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
+  },
+
+  avisoCardTitulo: {
+    color: VINHO_ESCURO,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+
+  avisoCardData: {
+    color: "#8A7D81",
+    fontSize: 10,
+    marginTop: 4,
+  },
+
+  avisoCardMensagem: {
+    color: "#62575B",
+    fontSize: 13,
+    lineHeight: 20,
+  },
+
+  avisoCardBadge: {
+    backgroundColor: "#F4E5EA",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+
+  avisoCardBadgeTexto: {
+    color: VINHO,
+    fontSize: 9,
+    fontWeight: "900",
+  },
+
+
   graficoTooltip: {
     position: "absolute",
     top: -46,
